@@ -1,0 +1,22 @@
+src/pipeline/pass_parallel.c
+  s_30d4e85c25767e::t_6a98a6498e78ac 878-895
+tests/test_edge_imports.c
+  s_30d4e85c25767e::t_6e5515a083fdee 839-901
+  s_30d4e85c25767e::t_205151012dab47 907-909
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.38-trip",
+  "base_commit_sha": "1baf9bf8b271e5273ad2e6b2984afd27546e2578",
+  "prompts": {},
+  "sessions": {
+    "s_30d4e85c25767e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cba3e238-da9c-475e-80fa-9bec4a1a13c9",
+        "model": "glm-5.2"
+      },
+      "human_author": "xiaojunc <xiaojunc@trip.com>"
+    }
+  }
+}
