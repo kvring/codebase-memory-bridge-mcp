@@ -1,0 +1,22 @@
+tests/test_edge_imports.c
+  s_30d4e85c25767e::t_912adb7cb760d3 873
+  s_30d4e85c25767e::t_881ee70183b204 846-847,850,864-866
+  s_30d4e85c25767e::t_45384bcceb923b 848-849,851-863,869-872,874-890
+  s_30d4e85c25767e::t_77762295177d53 901
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.38-trip",
+  "base_commit_sha": "fe27bb9b99e1c9c9262bae9d3412c5051d6f6fa0",
+  "prompts": {},
+  "sessions": {
+    "s_30d4e85c25767e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cba3e238-da9c-475e-80fa-9bec4a1a13c9",
+        "model": "glm-5.2"
+      },
+      "human_author": "xiaojunc <xiaojunc@trip.com>"
+    }
+  }
+}
