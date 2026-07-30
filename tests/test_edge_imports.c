@@ -891,6 +891,41 @@ TEST(edge_imports_external_phantom) {
     PASS();
 }
 
+/* TypeScript: aliased import records exported_name on IMPORTS edge. */
+TEST(edge_imports_alias_exported_name) {
+    /* import { CStyleNew as CStyle } from '@ctrip/train_rn_common' must record
+     * exported_name=CStyleNew on the IMPORTS edge (the alias is CStyle). */
+    const EILangFile files[] = {
+        {"app.ts", "import { CStyleNew as CStyle } from '@ctrip/train_rn_common';\n"
+                   "export function run() { return CStyle; }\n"}};
+    EILangProj lp;
+    cbm_store_t *store = ei_index_files(&lp, files, 1);
+    ASSERT_NOT_NULL(store);
+
+    char file_qn[512];
+    snprintf(file_qn, sizeof(file_qn), "%s.app.__file__", lp.project);
+    cbm_node_t appfile = {0};
+    ASSERT_EQ(0, cbm_store_find_node_by_qn(store, lp.project, file_qn, &appfile));
+
+    cbm_edge_t *edges = NULL;
+    int ec = 0;
+    ASSERT_EQ(0, cbm_store_find_edges_by_source_type(store, appfile.id, "IMPORTS", &edges, &ec));
+    ASSERT_GT(ec, 0);
+    bool found = false;
+    for (int i = 0; i < ec; i++) {
+        if (edges[i].properties_json &&
+            strstr(edges[i].properties_json, "\"exported_name\":\"CStyleNew\"")) {
+            found = true; break;
+        }
+    }
+    if (!found) { FAIL("aliased import must record exported_name=CStyleNew on IMPORTS edge"); }
+
+    free(edges);
+    cbm_node_free_fields(&appfile);
+    ei_cleanup(&lp, store);
+    PASS();
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
  * SUITE registration
  * ═══════════════════════════════════════════════════════════════════════════ */
@@ -898,6 +933,7 @@ TEST(edge_imports_external_phantom) {
 SUITE(edge_imports) {
     /* ── EXTERNAL PHANTOM IMPORTS (Enabler C) ── */
     RUN_TEST(edge_imports_external_phantom);
+    RUN_TEST(edge_imports_alias_exported_name);
 
     /* ── GREEN GUARDS — Python (must stay passing) ── */
     RUN_TEST(ei_python_relative_from_import);
