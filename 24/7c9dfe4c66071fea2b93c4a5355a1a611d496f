@@ -1,0 +1,22 @@
+src/pipeline/pass_parallel.c
+  s_30d4e85c25767e::t_ea8ab345fc897e 890
+tests/test_edge_imports.c
+  s_30d4e85c25767e::t_45384bcceb923b 853-856
+  s_30d4e85c25767e::t_29617de7ecf812 848-852,857-889
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.38-trip",
+  "base_commit_sha": "247c9dfe4c66071fea2b93c4a5355a1a611d496f",
+  "prompts": {},
+  "sessions": {
+    "s_30d4e85c25767e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cba3e238-da9c-475e-80fa-9bec4a1a13c9",
+        "model": "glm-5.2"
+      },
+      "human_author": null
+    }
+  }
+}
