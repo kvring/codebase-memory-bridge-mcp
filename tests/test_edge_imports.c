@@ -836,10 +836,69 @@ TEST(ei_php_interface_use) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+ * EXTERNAL PHANTOM IMPORTS (Enabler C)
+ *
+ * External npm package imports (e.g. `import {X} from '@ctrip/lib'`) that do
+ * not resolve to in-project nodes must materialize a phantom Module node with
+ * is_external=true + an IMPORTS edge. This is the anchor for cross-repo bridges.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/* TypeScript: external package import produces phantom node + IMPORTS edge. */
+TEST(edge_imports_external_phantom) {
+    /* External npm package import must materialize a phantom Module node
+     * (is_external=true) + an IMPORTS edge to it. Enabler C anchor. */
+    const EILangFile files[] = {
+        {"app.ts", "import { TrainUBTLogUtil } from '@ctrip/train_rn_common';\n"
+                   "export function bookTicket() { TrainUBTLogUtil.ubtLog('x'); }\n"}};
+    EILangProj lp;
+    cbm_store_t *store = ei_index_files(&lp, files, 1);
+    ASSERT_NOT_NULL(store);
+
+    /* Phantom QN built the SAME way the impl builds it: cbm_pipeline_fqn_module
+     * normalizes '/' to '.', so the stored QN is <project>.@ctrip.train_rn_common. */
+    char *phantom_qn = cbm_pipeline_fqn_module(lp.project, "@ctrip/train_rn_common");
+    ASSERT_NOT_NULL(phantom_qn);
+
+    cbm_node_t phantom = {0};
+    if (cbm_store_find_node_by_qn(store, lp.project, phantom_qn, &phantom) != 0) {
+        FAIL("external phantom Module node must be materialized in store");
+    }
+    if (!phantom.properties_json ||
+        !strstr(phantom.properties_json, "\"is_external\":true")) {
+        FAIL("phantom must have is_external=true in properties_json");
+    }
+
+    char file_qn[512];
+    snprintf(file_qn, sizeof(file_qn), "%s.app.__file__", lp.project);
+    cbm_node_t appfile = {0};
+    ASSERT_EQ(0, cbm_store_find_node_by_qn(store, lp.project, file_qn, &appfile));
+
+    cbm_edge_t *edges = NULL;
+    int ec = 0;
+    ASSERT_EQ(0, cbm_store_find_edges_by_source_type(store, appfile.id, "IMPORTS", &edges, &ec));
+    ASSERT_GT(ec, 0);
+    bool linked = false;
+    for (int i = 0; i < ec; i++) {
+        if (edges[i].target_id == phantom.id) { linked = true; break; }
+    }
+    if (!linked) { FAIL("IMPORTS edge must target the external phantom"); }
+
+    free(edges);
+    free(phantom_qn);
+    cbm_node_free_fields(&phantom);
+    cbm_node_free_fields(&appfile);
+    ei_cleanup(&lp, store);
+    PASS();
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
  * SUITE registration
  * ═══════════════════════════════════════════════════════════════════════════ */
 
 SUITE(edge_imports) {
+    /* ── EXTERNAL PHANTOM IMPORTS (Enabler C) ── */
+    RUN_TEST(edge_imports_external_phantom);
+
     /* ── GREEN GUARDS — Python (must stay passing) ── */
     RUN_TEST(ei_python_relative_from_import);
     RUN_TEST(ei_python_absolute_import);

@@ -431,6 +431,11 @@ static int create_import_edges_for_file(cbm_pipeline_ctx_t *ctx, const CBMFileRe
         }
         const cbm_gbuf_node_t *target =
             cbm_pipeline_resolve_import_node(ctx, rel, file_qn, imp, namespace_map);
+        /* Enabler C: bare external-package imports that don't resolve in-project
+         * materialize a phantom Module node (is_external) as the IMPORTS target. */
+        if (!target) {
+            target = cbm_pipeline_materialize_external_phantom(ctx, imp, rel);
+        }
         if (target && target->id != source_node->id) {
             char imp_props[CBM_SZ_256];
             snprintf(imp_props, sizeof(imp_props), "{\"local_name\":\"%s\"}",

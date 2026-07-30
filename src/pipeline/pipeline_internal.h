@@ -109,6 +109,11 @@ const cbm_gbuf_node_t *cbm_pipeline_resolve_import_node(const cbm_pipeline_ctx_t
                                                         const CBMImport *imp,
                                                         CBMHashTable *namespace_map);
 
+/* Enabler C: materialize a bare external-package import as a phantom Module
+ * node (is_external) in ctx->gbuf; returns NULL for relative imports. */
+const cbm_gbuf_node_t *cbm_pipeline_materialize_external_phantom(
+    const cbm_pipeline_ctx_t *ctx, const CBMImport *imp, const char *rel);
+
 /* Build a namespace → File-node-QN map from a set of extraction results.
  * Each result that declared a namespace/package contributes one entry keyed by
  * the namespace string (e.g. "App.Utils", "com.example").  Returns NULL when no
