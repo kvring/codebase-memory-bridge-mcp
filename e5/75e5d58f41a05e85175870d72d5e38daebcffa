@@ -1,0 +1,21 @@
+src/pipeline/pass_pkgmap.c
+  s_30d4e85c25767e::t_3e5c6a6af0f8bc 1350
+src/pipeline/pass_definitions.c
+  s_30d4e85c25767e::t_7fb1f700b38efd 434-453
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.38-trip",
+  "base_commit_sha": "e575e5d58f41a05e85175870d72d5e38daebcffa",
+  "prompts": {},
+  "sessions": {
+    "s_30d4e85c25767e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cba3e238-da9c-475e-80fa-9bec4a1a13c9",
+        "model": "glm-5.2"
+      },
+      "human_author": "xiaojunc <xiaojunc@trip.com>"
+    }
+  }
+}
