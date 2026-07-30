@@ -438,8 +438,10 @@ static int create_import_edges_for_file(cbm_pipeline_ctx_t *ctx, const CBMFileRe
         }
         if (target && target->id != source_node->id) {
             char imp_props[CBM_SZ_256];
-            snprintf(imp_props, sizeof(imp_props), "{\"local_name\":\"%s\"}",
-                     imp->local_name ? imp->local_name : "");
+            snprintf(imp_props, sizeof(imp_props),
+                     "{\"local_name\":\"%s\",\"exported_name\":\"%s\"}",
+                     imp->local_name ? imp->local_name : "",
+                     imp->exported_name ? imp->exported_name : "");
             cbm_gbuf_insert_edge(ctx->gbuf, source_node->id, target->id, "IMPORTS", imp_props);
             count++;
         }

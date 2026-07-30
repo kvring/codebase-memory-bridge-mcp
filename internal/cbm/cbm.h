@@ -240,8 +240,9 @@ typedef struct {
 } CBMCall;
 
 typedef struct {
-    const char *local_name;  // local alias or name
-    const char *module_path; // resolved module path / QN
+    const char *local_name;    // local alias or name
+    const char *module_path;   // resolved module path / QN
+    const char *exported_name; // original exported name (== local_name when no alias)
 } CBMImport;
 
 typedef struct {
