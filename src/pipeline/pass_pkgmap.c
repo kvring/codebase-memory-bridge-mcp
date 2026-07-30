@@ -1338,6 +1338,28 @@ static const cbm_gbuf_node_t *resolve_sibling_file(const cbm_pipeline_ctx_t *ctx
     return found;
 }
 
+/* Enabler C: if `imp` is a bare external-package import (module_path does not
+ * start with '.'), upsert a phantom Module node (QN <project>.<module_path>,
+ * {"is_external":true} in properties) into ctx->gbuf and return it; returns
+ * NULL for relative imports (genuine missing files) or on allocation failure.
+ * The returned node is borrowed from gbuf — caller does not free it. */
+const cbm_gbuf_node_t *cbm_pipeline_materialize_external_phantom(
+    const cbm_pipeline_ctx_t *ctx, const CBMImport *imp, const char *rel) {
+    if (!ctx || !imp || !imp->module_path || imp->module_path[0] == '.') {
+        return NULL;
+    }
+    char *ext_qn = cbm_pipeline_fqn_module(ctx->project_name, imp->module_path);
+    if (!ext_qn) {
+        return NULL;
+    }
+    /* cbm_gbuf_upsert_node returns int64_t (node ID); fetch the node struct. */
+    (void)cbm_gbuf_upsert_node(ctx->gbuf, "Module", imp->module_path, ext_qn, rel,
+                               0, 0, "{\"is_external\":true}");
+    const cbm_gbuf_node_t *phantom = cbm_gbuf_find_by_qn(ctx->gbuf, ext_qn);
+    free(ext_qn);
+    return phantom;
+}
+
 const cbm_gbuf_node_t *cbm_pipeline_resolve_import_node(const cbm_pipeline_ctx_t *ctx,
                                                         const char *source_rel,
                                                         const char *source_file_qn,
