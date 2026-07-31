@@ -15,6 +15,8 @@ typedef struct {
     int grpc_edges;    /* CROSS_GRPC_CALLS edges created */
     int graphql_edges; /* CROSS_GRAPHQL_CALLS edges created */
     int trpc_edges;    /* CROSS_TRPC_CALLS edges created */
+    int cross_import_edges; /* CROSS_IMPORTS edges created (npm package bridge) */
+    int cross_call_edges;   /* CROSS_CALLS edges created (Phase 4) */
     int projects_scanned;
     double elapsed_ms;
 } cbm_cross_repo_result_t;
@@ -28,6 +30,19 @@ typedef struct {
  * Returns result with edge counts. */
 cbm_cross_repo_result_t cbm_cross_repo_match(const char *project, const char **target_projects,
                                              int target_count);
+
+/* ── npm package-import bridge (Task 3.2) ───────────────────────── */
+
+/* Run cross-repo npm-package-import bridging for `project` against
+ * `target_projects` (same "*" semantics as cbm_cross_repo_match). For each
+ * target whose declared package.json `name` matches an external-package
+ * phantom IMPORTS edge in `project`, link the imported symbol to the
+ * provider's exported definition. Writes CROSS_IMPORTS (consumer DB) and
+ * CROSS_IMPORTED_BY (provider DB) bidirectionally. Idempotent (clears the
+ * four package-bridge edge types for `project` first). */
+cbm_cross_repo_result_t cbm_cross_repo_package_bridge(const char *project,
+                                                       const char **target_projects,
+                                                       int target_count);
 
 /* ── Export index builder (Task 3.1) ────────────────────────────── */
 
@@ -57,5 +72,9 @@ int cbm_cross_pkg_export_lookup(const cbm_pkg_export_index_t *ix, const char *pk
 
 /* Free the export index. */
 void cbm_cross_pkg_export_index_free(cbm_pkg_export_index_t *ix);
+
+/* Return the provider package name the index was built for (borrows; valid
+ * until _index_free). NULL if no package.json name was found. */
+const char *cbm_cross_pkg_export_package_name(const cbm_pkg_export_index_t *ix);
 
 #endif /* CBM_PASS_CROSS_REPO_H */
