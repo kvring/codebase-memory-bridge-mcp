@@ -29,4 +29,33 @@ typedef struct {
 cbm_cross_repo_result_t cbm_cross_repo_match(const char *project, const char **target_projects,
                                              int target_count);
 
+/* ── Export index builder (Task 3.1) ────────────────────────────── */
+
+/* Opaque export index handle. */
+typedef struct cbm_pkg_export_index cbm_pkg_export_index_t;
+
+/* Entry in the export index: maps (package_name, symbol_name) to provider details. */
+typedef struct {
+    const char *qn;        /* Qualified name of the exported symbol */
+    int64_t node_id;       /* Node ID in the provider's DB */
+    const char *file;      /* File path (relative) */
+    const char *label;     /* Symbol type (Function, Class, etc.) */
+} cbm_pkg_export_entry;
+
+/* Build an export index from a provider's package.json entry point.
+ * Reads provider_root/package.json to determine the entry point, then BFS
+ * along IMPORTS edges to collect all is_exported=true nodes.
+ * Returns a non-NULL index (even if empty) on success, NULL on setup failure. */
+cbm_pkg_export_index_t *cbm_cross_pkg_build_export_index(cbm_store_t *provider_store,
+                                                         const char *provider_project,
+                                                         const char *provider_root);
+
+/* Look up an exported symbol in the index.
+ * Returns 0 if found, fills out; returns non-zero if not found. */
+int cbm_cross_pkg_export_lookup(const cbm_pkg_export_index_t *ix, const char *pkg_name,
+                                const char *symbol_name, cbm_pkg_export_entry *out);
+
+/* Free the export index. */
+void cbm_cross_pkg_export_index_free(cbm_pkg_export_index_t *ix);
+
 #endif /* CBM_PASS_CROSS_REPO_H */
