@@ -37,31 +37,37 @@ enum {
 
 /* ── Data structures ────────────────────────────────────────────── */
 
-/* Internal entry struct with depth tracking and heap-allocated strings */
+/* Stored entry with heap-allocated strings.
+ * These are allocated once and owned by the hash table. */
 typedef struct {
-    char *qn;              /* Heap-allocated copy */
+    char *qn;              /* Heap-allocated */
     int64_t node_id;
-    char *file;            /* Heap-allocated copy */
-    char *label;           /* Heap-allocated copy */
-    int depth;             /* Depth at which this entry was added (shallower = higher priority) */
-} internal_entry_t;
+    char *file;            /* Heap-allocated */
+    char *label;           /* Heap-allocated */
+    int depth;             /* For conflict tracking */
+} stored_entry_t;
 
-/* The index: hash table keyed by "pkg_name\0symbol_name", values are internal_entry_t* */
+/* The index: hash table keyed by "pkg_name\0symbol_name", values are stored_entry_t* */
 struct cbm_pkg_export_index {
     CBMHashTable *ht;
-    int count;
+    stored_entry_t **entries;  /* Array of all entries for bulk cleanup */
+    int entry_count;
+    int entry_capacity;
 };
 
 /* ── Helpers ────────────────────────────────────────────────────── */
 
-/* Build a composite key: "pkg_name\0symbol_name" */
+/* Build a composite key: "pkg_name\x1Fsymbol_name". Use the unit-separator
+ * (0x1F) — NOT '\0' — because the underlying hash table (Verstable) treats
+ * keys as NUL-terminated C strings, so an embedded '\0' would truncate the
+ * key to just pkg_name and collapse all symbols of a package into one entry. */
 static char *build_key(const char *pkg_name, const char *symbol_name) {
     size_t pkg_len = strlen(pkg_name);
     size_t sym_len = strlen(symbol_name);
     char *key = (char *)malloc(pkg_len + sym_len + 2);
     if (!key) return NULL;
     memcpy(key, pkg_name, pkg_len);
-    key[pkg_len] = '\0';
+    key[pkg_len] = '\x1F';
     memcpy(key + pkg_len + 1, symbol_name, sym_len);
     key[pkg_len + sym_len + 1] = '\0';
     return key;
@@ -74,8 +80,8 @@ static const char *extract_symbol_name(const char *qn) {
     return last_dot ? last_dot + 1 : qn;
 }
 
-/* Free an internal entry */
-static void free_internal_entry(internal_entry_t *entry) {
+/* Free a stored entry */
+static void free_stored_entry(stored_entry_t *entry) {
     if (!entry) return;
     free(entry->qn);
     free(entry->file);
@@ -94,7 +100,7 @@ static void collect_exported_defs(struct sqlite3 *db, const char *project,
 static void collect_exported_defs(struct sqlite3 *db, const char *project,
                                   int64_t entry_id, int depth, int max_depth,
                                   const char *pkg_name, cbm_pkg_export_index_t *ix) {
-    if (depth >= max_depth || ix->count >= PKG_EXPORT_MAX_NODES) {
+    if (depth >= max_depth || ix->entry_count >= PKG_EXPORT_MAX_NODES) {
         return;
     }
 
@@ -104,7 +110,7 @@ static void collect_exported_defs(struct sqlite3 *db, const char *project,
         "SELECT id, name, qualified_name, file_path, label FROM nodes "
         "WHERE project=?1 AND file_path=(SELECT file_path FROM nodes WHERE id=?2) "
         "AND json_valid(properties) "
-        "AND json_extract(properties,'$.is_exported')='true' "
+        "AND CAST(json_extract(properties,'$.is_exported') AS TEXT) IN ('1','true') "
         "AND label IN ('Function','Class','Variable','Interface','Type','Method')";
 
     if (sqlite3_prepare_v2(db, sql, -1, &st, NULL) != SQLITE_OK) {
@@ -114,7 +120,7 @@ static void collect_exported_defs(struct sqlite3 *db, const char *project,
     sqlite3_bind_text(st, 1, project, -1, SQLITE_STATIC);
     sqlite3_bind_int64(st, 2, entry_id);
 
-    while (sqlite3_step(st) == SQLITE_ROW && ix->count < PKG_EXPORT_MAX_NODES) {
+    while (sqlite3_step(st) == SQLITE_ROW && ix->entry_count < PKG_EXPORT_MAX_NODES) {
         int64_t node_id = sqlite3_column_int64(st, 0);
         const char *name = (const char *)sqlite3_column_text(st, 1);
         const char *qn = (const char *)sqlite3_column_text(st, 2);
@@ -131,33 +137,27 @@ static void collect_exported_defs(struct sqlite3 *db, const char *project,
         if (!key) continue;
 
         /* Check for existing entry to apply conflict policy */
-        internal_entry_t *existing = (internal_entry_t *)cbm_ht_get(ix->ht, key);
+        stored_entry_t *existing = (stored_entry_t *)cbm_ht_get(ix->ht, key);
         if (existing != NULL) {
             /* Keep entry at shallower depth; on tie, prefer lex-smaller QN */
             if (depth < existing->depth ||
                 (depth == existing->depth && strcmp(qn, existing->qn) < 0)) {
-                /* Replace with new entry */
-                free_internal_entry(existing);
-
-                internal_entry_t *new_entry = (internal_entry_t *)malloc(sizeof(internal_entry_t));
-                if (!new_entry) {
-                    free(key);
-                    continue;
-                }
-                new_entry->qn = strdup(qn);
-                new_entry->node_id = node_id;
-                new_entry->file = strdup(file);
-                new_entry->label = strdup(label);
-                new_entry->depth = depth;
-
-                cbm_ht_set(ix->ht, key, new_entry);
+                /* Update existing entry */
+                free(existing->qn);
+                free(existing->file);
+                free(existing->label);
+                existing->qn = strdup(qn);
+                existing->node_id = node_id;
+                existing->file = strdup(file);
+                existing->label = strdup(label);
+                existing->depth = depth;
             }
             free(key);
             continue;
         }
 
         /* New entry: allocate and insert */
-        internal_entry_t *new_entry = (internal_entry_t *)malloc(sizeof(internal_entry_t));
+        stored_entry_t *new_entry = (stored_entry_t *)malloc(sizeof(stored_entry_t));
         if (!new_entry) {
             free(key);
             continue;
@@ -169,8 +169,24 @@ static void collect_exported_defs(struct sqlite3 *db, const char *project,
         new_entry->depth = depth;
 
         cbm_ht_set(ix->ht, key, new_entry);
-        ix->count++;
-        free(key);
+
+        /* Track the entry for cleanup */
+        if (ix->entry_count >= ix->entry_capacity) {
+            int new_cap = ix->entry_capacity == 0 ? 32 : ix->entry_capacity * 2;
+            stored_entry_t **tmp = (stored_entry_t **)realloc(ix->entries, new_cap * sizeof(stored_entry_t *));
+            if (!tmp) {
+                free_stored_entry(new_entry);
+                free(key);
+                continue;
+            }
+            ix->entries = tmp;
+            ix->entry_capacity = new_cap;
+        }
+        ix->entries[ix->entry_count] = new_entry;
+        ix->entry_count++;
+        /* key is now BORROWED by the hash table (Verstable stores the pointer,
+         * it does not copy it — see pass_pkgmap.c's identical idiom). Do NOT
+         * free it here; it is freed in cbm_cross_pkg_export_index_free. */
     }
 
     sqlite3_finalize(st);
@@ -183,7 +199,7 @@ static void collect_exported_defs(struct sqlite3 *db, const char *project,
 
     sqlite3_bind_int64(st, 1, entry_id);
 
-    while (sqlite3_step(st) == SQLITE_ROW && ix->count < PKG_EXPORT_MAX_NODES) {
+    while (sqlite3_step(st) == SQLITE_ROW && ix->entry_count < PKG_EXPORT_MAX_NODES) {
         int64_t target_id = sqlite3_column_int64(st, 0);
         collect_exported_defs(db, project, target_id, depth + 1, max_depth, pkg_name, ix);
     }
@@ -211,7 +227,9 @@ cbm_pkg_export_index_t *cbm_cross_pkg_build_export_index(cbm_store_t *provider_s
         free(ix);
         return NULL;
     }
-    ix->count = 0;
+    ix->entries = NULL;
+    ix->entry_count = 0;
+    ix->entry_capacity = 0;
 
     /* Read package.json from provider_root */
     char pkg_json_path[PKG_EXPORT_BUF_PATH];
@@ -323,8 +341,11 @@ cbm_pkg_export_index_t *cbm_cross_pkg_build_export_index(cbm_store_t *provider_s
     yyjson_doc_free(doc);
     free(content);
 
-    /* Convert entry relative path to module QN */
-    char *entry_qn = cbm_pipeline_fqn_module(provider_project, entry_rel_buf);
+    /* Convert entry relative path to the file's __file__ node QN. The indexer
+     * creates each file's node via fqn_compute(project, rel, "__file__") →
+     * "<project>.<path>.__file__" (see create_imports_edges); fqn_module would
+     * yield "<project>.<path>" which is NOT a node QN, so the lookup misses. */
+    char *entry_qn = cbm_pipeline_fqn_compute(provider_project, entry_rel_buf, "__file__");
     if (!entry_qn) {
         cbm_log_info("pkg_export: failed to build entry QN", "entry", entry_rel_buf);
         free(pkg_name_copy);
@@ -335,8 +356,9 @@ cbm_pkg_export_index_t *cbm_cross_pkg_build_export_index(cbm_store_t *provider_s
     cbm_node_t entry_node;
     if (cbm_store_find_node_by_qn(provider_store, provider_project, entry_qn, &entry_node) !=
         CBM_STORE_OK) {
-        free(entry_qn);
+        /* Log BEFORE freeing entry_qn — cbm_log_info reads the string. */
         cbm_log_info("pkg_export: entry node not found in DB", "qn", entry_qn);
+        free(entry_qn);
         free(pkg_name_copy);
         return ix; /* Return empty index */
     }
@@ -368,13 +390,14 @@ int cbm_cross_pkg_export_lookup(const cbm_pkg_export_index_t *ix, const char *pk
         return -1;
     }
 
-    internal_entry_t *entry = (internal_entry_t *)cbm_ht_get(ix->ht, key);
+    stored_entry_t *entry = (stored_entry_t *)cbm_ht_get(ix->ht, key);
     free(key);
 
     if (!entry) {
         return -1;
     }
 
+    /* Return pointers to the stored strings. These remain valid as long as the index exists. */
     out->qn = entry->qn;
     out->node_id = entry->node_id;
     out->file = entry->file;
@@ -382,16 +405,33 @@ int cbm_cross_pkg_export_lookup(const cbm_pkg_export_index_t *ix, const char *pk
     return 0;
 }
 
+/* Free a hash-table key (callback for cbm_ht_foreach in _index_free). The
+ * values (stored_entry_t*) are freed via the entries[] array below; this only
+ * frees the borrowed keys. */
+static void free_key_cb(const char *key, void *value, void *ud) {
+    (void)value;
+    (void)ud;
+    free((void *)key);
+}
+
 void cbm_cross_pkg_export_index_free(cbm_pkg_export_index_t *ix) {
     if (!ix) {
         return;
     }
 
-    /* Free all entries in the hash table */
+    /* Free all hash-table keys (borrowed by Verstable — see build_key). */
     if (ix->ht) {
-        /* We can't iterate and delete safely with cbm_ht, so we just free the table.
-         * This is a limitation of the hash table API, but the table itself should
-         * be freed. For proper cleanup, we'd need cbm_ht_foreach with a free callback. */
+        cbm_ht_foreach(ix->ht, free_key_cb, NULL);
+    }
+
+    /* Free all stored entries (the table's values). */
+    for (int i = 0; i < ix->entry_count; i++) {
+        free_stored_entry(ix->entries[i]);
+    }
+    free(ix->entries);
+
+    /* Free the hash table */
+    if (ix->ht) {
         cbm_ht_free(ix->ht);
     }
 
