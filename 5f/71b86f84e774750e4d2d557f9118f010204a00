@@ -1,0 +1,31 @@
+src/pipeline/cross_pkg_export.c
+  s_30d4e85c25767e::t_f1e60cbfac7f48 1-39,41,47-76,86-137,154-164,169-259,261-269,278-283,285-319,325-326,328,331-339,341-349,351-353,356-377,382-391,395-399
+  s_30d4e85c25767e::t_c2700f1c881264 42-46
+  s_30d4e85c25767e::t_2738f75fb9fb24 40,77-85,138-153,165-168,260,270-277,284,320-324,327,329-330,340,350,354-355,378-381,392-394
+tests/test_cross_pkg_export.c
+  s_30d4e85c25767e::t_7d7fcb025aa8d5 1-202
+src/pipeline/pass_cross_repo.h
+  s_30d4e85c25767e::t_698406fe745b3b 32-60
+tests/test_main.c
+  s_30d4e85c25767e::t_7eb6d77ff89d7a 109
+  s_30d4e85c25767e::t_fff713208eb1b3 270
+Makefile.cbm
+  s_30d4e85c25767e::t_b1be3fb5fcc3f4 336
+  s_30d4e85c25767e::t_7e040d33593396 204
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.38-trip",
+  "base_commit_sha": "5f71b86f84e774750e4d2d557f9118f010204a00",
+  "prompts": {},
+  "sessions": {
+    "s_30d4e85c25767e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cba3e238-da9c-475e-80fa-9bec4a1a13c9",
+        "model": "glm-5.2"
+      },
+      "human_author": "xiaojunc <xiaojunc@trip.com>"
+    }
+  }
+}
