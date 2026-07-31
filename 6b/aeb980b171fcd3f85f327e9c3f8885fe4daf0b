@@ -1,0 +1,27 @@
+src/pipeline/cross_pkg_export.c
+  s_30d4e85c25767e::t_e943f792961425 187-189
+  s_30d4e85c25767e::t_f1e60cbfac7f48 425-426
+  s_30d4e85c25767e::t_5ca6038fca4f2d 40-41,43,45-48,50,53-55,83-84,103,123,140,145-153,160,172-186,202,230-232,393,400,428-431,433
+  s_30d4e85c25767e::t_887d1f4e609476 113
+  s_30d4e85c25767e::t_c4ca00a82d7eaa 359,361
+  s_30d4e85c25767e::t_3b4aaf14c70816 344-348
+  s_30d4e85c25767e::t_5a7cdef0f5a752 432
+  s_30d4e85c25767e::t_a6b5b3aa82273b 408-416,422-424,427
+  s_30d4e85c25767e::t_4ffd6ad74cf8b0 60-63,70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.39-trip",
+  "base_commit_sha": "6baeb980b171fcd3f85f327e9c3f8885fe4daf0b",
+  "prompts": {},
+  "sessions": {
+    "s_30d4e85c25767e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cba3e238-da9c-475e-80fa-9bec4a1a13c9",
+        "model": "glm-5.2"
+      },
+      "human_author": null
+    }
+  }
+}
