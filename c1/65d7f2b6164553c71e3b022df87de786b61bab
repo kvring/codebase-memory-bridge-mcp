@@ -1,0 +1,20 @@
+src/pipeline/cross_pkg_export.c
+  s_30d4e85c25767e::t_5a7cdef0f5a752 410
+  s_30d4e85c25767e::t_5ca6038fca4f2d 40-41,43,45-48,50,53-55,80-81,100,120,137,142-150,157,169-184,198,226-228,385,392,405-409,411
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.38-trip",
+  "base_commit_sha": "c165d7f2b6164553c71e3b022df87de786b61bab",
+  "prompts": {},
+  "sessions": {
+    "s_30d4e85c25767e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cba3e238-da9c-475e-80fa-9bec4a1a13c9",
+        "model": "glm-5.2"
+      },
+      "human_author": "xiaojunc <xiaojunc@trip.com>"
+    }
+  }
+}
