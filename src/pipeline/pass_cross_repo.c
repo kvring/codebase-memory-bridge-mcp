@@ -113,6 +113,11 @@ static void delete_cross_edges(cbm_store_t *store, const char *project) {
     cbm_store_delete_edges_by_type(store, project, "CROSS_GRPC_CALLS");
     cbm_store_delete_edges_by_type(store, project, "CROSS_GRAPHQL_CALLS");
     cbm_store_delete_edges_by_type(store, project, "CROSS_TRPC_CALLS");
+    /* Package-import bridge edges (Task 3.2/4). */
+    cbm_store_delete_edges_by_type(store, project, "CROSS_IMPORTS");
+    cbm_store_delete_edges_by_type(store, project, "CROSS_CALLS");
+    cbm_store_delete_edges_by_type(store, project, "CROSS_IMPORTED_BY");
+    cbm_store_delete_edges_by_type(store, project, "CROSS_CALLED_BY");
 }
 
 /* Insert a CROSS_* edge into a store. */
@@ -684,5 +689,225 @@ cbm_cross_repo_result_t cbm_cross_repo_match(const char *project, const char **t
                 result.graphql_edges + result.trpc_edges;
     cbm_log_info("cross_repo.done", "project", project, "total", cr_itoa(total));
 
+    return result;
+}
+
+/* ── npm package-import bridge (Task 3.2) ─────────────────────────── */
+
+/* Match a phantom name (the imported module_path, e.g. "@ctrip/lib" or
+ * "@ctrip/lib/sub") against a provider package name. True on exact match or
+ * when the phantom is a subpath import of the package. */
+static bool phantom_matches_pkg(const char *phantom_name, const char *pkg) {
+    if (!phantom_name || !pkg) {
+        return false;
+    }
+    size_t pl = strlen(pkg);
+    if (strncmp(phantom_name, pkg, pl) != 0) {
+        return false;
+    }
+    return phantom_name[pl] == '\0' || phantom_name[pl] == '/';
+}
+
+/* Read a project's root_path from its store's projects table. Heap-allocated. */
+static char *read_root_path(cbm_store_t *store, const char *project) {
+    struct sqlite3 *db = cbm_store_get_db(store);
+    if (!db) {
+        return NULL;
+    }
+    sqlite3_stmt *st = NULL;
+    if (sqlite3_prepare_v2(db, "SELECT root_path FROM projects WHERE name=?1 LIMIT 1", -1, &st,
+                           NULL) != SQLITE_OK) {
+        return NULL;
+    }
+    sqlite3_bind_text(st, SKIP_ONE, project, -1, SQLITE_STATIC);
+    char *out = NULL;
+    if (sqlite3_step(st) == SQLITE_ROW) {
+        const char *rp = (const char *)sqlite3_column_text(st, 0);
+        if (rp) {
+            out = strdup(rp);
+        }
+    }
+    sqlite3_finalize(st);
+    return out;
+}
+
+/* Look up a node id by qualified_name in a store. 0 if not found. */
+static int64_t lookup_node_id_by_qn(cbm_store_t *store, const char *project, const char *qn) {
+    cbm_node_t n = {0};
+    if (cbm_store_find_node_by_qn(store, project, qn, &n) != CBM_STORE_OK) {
+        cbm_node_free_fields(&n);
+        return 0;
+    }
+    int64_t id = n.id;
+    cbm_node_free_fields(&n);
+    return id;
+}
+
+cbm_cross_repo_result_t cbm_cross_repo_package_bridge(const char *project,
+                                                      const char **target_projects,
+                                                      int target_count) {
+    cbm_cross_repo_result_t result = {0};
+    struct timespec t0;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+
+    char src_path[CR_PATH_BUF];
+    cr_db_path(project, src_path, sizeof(src_path));
+    cbm_store_t *src_store = cbm_store_open_path(src_path);
+    if (!src_store) {
+        return result;
+    }
+    struct sqlite3 *src_db = cbm_store_get_db(src_store);
+
+    /* Idempotent: clear this project's package-bridge edges. */
+    delete_cross_edges(src_store, project);
+
+    /* Resolve targets (same "*" semantics as cbm_cross_repo_match). */
+    char **resolved = NULL;
+    int resolved_count = 0;
+    bool own_list = false;
+    if (target_count == SKIP_ONE && strcmp(target_projects[0], "*") == 0) {
+        resolved_count = collect_all_projects(&resolved);
+        own_list = true;
+    } else {
+        resolved = (char **)target_projects;
+        resolved_count = target_count;
+    }
+
+    /* One scan of source IMPORTS edges whose target is an is_external phantom.
+     * Reset+rewalk per target (cheap; bounded by external imports). */
+    sqlite3_stmt *scan = NULL;
+    if (src_db) {
+        if (sqlite3_prepare_v2(src_db,
+            "SELECT e.source_id, e.target_id, e.properties, n.name "
+            "FROM edges e JOIN nodes n ON n.id = e.target_id "
+            "WHERE e.project=?1 AND e.type='IMPORTS' "
+            "AND json_valid(n.properties) "
+            "AND CAST(json_extract(n.properties,'$.is_external') AS TEXT) IN ('1','true')",
+            -1, &scan, NULL) != SQLITE_OK) {
+            cbm_log_info("cross_pkg_bridge.scan_prepare_failed", "project", project);
+            scan = NULL;
+        }
+    }
+
+    for (int i = 0; i < resolved_count; i++) {
+        const char *tgt = resolved[i];
+        if (strcmp(tgt, project) == 0) {
+            continue;
+        }
+
+        char tgt_path[CR_PATH_BUF];
+        cr_db_path(tgt, tgt_path, sizeof(tgt_path));
+        cbm_store_t *tgt_store = cbm_store_open_path(tgt_path);
+        if (!tgt_store) {
+            continue;
+        }
+
+        char *tgt_root = read_root_path(tgt_store, tgt);
+        if (!tgt_root) {
+            cbm_store_close(tgt_store);
+            continue;
+        }
+
+        cbm_pkg_export_index_t *ix = cbm_cross_pkg_build_export_index(tgt_store, tgt, tgt_root);
+        free(tgt_root);
+        if (!ix) {
+            cbm_store_close(tgt_store);
+            continue;
+        }
+
+        const char *pkg = cbm_cross_pkg_export_package_name(ix);
+        if (!pkg || !pkg[0]) {
+            cbm_cross_pkg_export_index_free(ix);
+            cbm_store_close(tgt_store);
+            continue;
+        }
+
+        if (scan) {
+            sqlite3_reset(scan);
+            sqlite3_bind_text(scan, SKIP_ONE, project, -1, SQLITE_STATIC);
+            while (sqlite3_step(scan) == SQLITE_ROW) {
+                int64_t importer_id = sqlite3_column_int64(scan, 0);
+                int64_t phantom_id = sqlite3_column_int64(scan, SKIP_ONE);
+                const char *eprops = (const char *)sqlite3_column_text(scan, PAIR_LEN);
+                const char *phantom_name = (const char *)sqlite3_column_text(scan, CR_COL_3);
+                if (!phantom_matches_pkg(phantom_name, pkg)) {
+                    continue;
+                }
+
+                /* The imported symbol's original exported name (alias case). */
+                char imp_name[CR_QN_BUF] = {0};
+                json_str_prop(eprops, "exported_name", imp_name, sizeof(imp_name));
+                if (!imp_name[0]) {
+                    json_str_prop(eprops, "local_name", imp_name, sizeof(imp_name));
+                }
+                if (!imp_name[0]) {
+                    continue;
+                }
+
+                cbm_pkg_export_entry sym = {0};
+                if (cbm_cross_pkg_export_lookup(ix, pkg, imp_name, &sym) != 0) {
+                    continue;
+                }
+
+                /* Consumer file info (for the reverse edge props). */
+                char imp_node_name[CBM_SZ_256] = {0};
+                char imp_file[CBM_SZ_512] = {0};
+                lookup_node_info(src_db, importer_id, imp_node_name, sizeof(imp_node_name),
+                                 imp_file, sizeof(imp_file));
+
+                /* Forward (src DB): importer -> phantom. target_symbol = the
+                 * imported symbol name (== provider's exported name). */
+                char fwd[CR_PROPS_BUF];
+                snprintf(fwd, sizeof(fwd),
+                    "{\"target_project\":\"%s\",\"target_symbol\":\"%s\",\"target_file\":\"%s\","
+                    "\"target_qn\":\"%s\",\"imported_name\":\"%s\",\"pkg\":\"%s\","
+                    "\"strategy\":\"npm_export\",\"confidence\":0.95}",
+                    tgt, imp_name, sym.file ? sym.file : "", sym.qn ? sym.qn : "", imp_name, pkg);
+                insert_cross_edge(src_store, project, importer_id, phantom_id, "CROSS_IMPORTS", fwd);
+
+                /* Reverse (tgt DB): provider symbol -> its file __file__ node,
+                 * so "change a lib symbol → who's affected" is queryable in the
+                 * provider DB. */
+                int64_t rev_target = 0;
+                if (sym.file && sym.file[0]) {
+                    char *file_qn = cbm_pipeline_fqn_compute(tgt, sym.file, "__file__");
+                    if (file_qn) {
+                        rev_target = lookup_node_id_by_qn(tgt_store, tgt, file_qn);
+                        free(file_qn);
+                    }
+                }
+                if (rev_target && rev_target != sym.node_id) {
+                    char rev[CR_PROPS_BUF];
+                    snprintf(rev, sizeof(rev),
+                        "{\"target_project\":\"%s\",\"target_symbol\":\"%s\",\"target_file\":\"%s\","
+                        "\"imported_name\":\"%s\",\"pkg\":\"%s\",\"strategy\":\"npm_export\","
+                        "\"confidence\":0.95}",
+                        project, imp_node_name, imp_file, imp_name, pkg);
+                    insert_cross_edge(tgt_store, tgt, sym.node_id, rev_target, "CROSS_IMPORTED_BY",
+                                       rev);
+                }
+                result.cross_import_edges++;
+            }
+        }
+
+        cbm_cross_pkg_export_index_free(ix);
+        cbm_store_close(tgt_store);
+        result.projects_scanned++;
+    }
+
+    if (scan) {
+        sqlite3_finalize(scan);
+    }
+    cbm_store_close(src_store);
+    if (own_list) {
+        free_project_list(resolved, resolved_count);
+    }
+
+    struct timespec t1;
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    result.elapsed_ms = ((double)(t1.tv_sec - t0.tv_sec) * CR_MS_PER_SEC) +
+                        ((double)(t1.tv_nsec - t0.tv_nsec) / CR_NS_PER_MS);
+    cbm_log_info("cross_pkg_bridge.done", "project", project,
+                 "import_edges", cr_itoa(result.cross_import_edges));
     return result;
 }

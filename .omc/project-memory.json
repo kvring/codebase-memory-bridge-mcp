@@ -1,0 +1,163 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1785727187773,
+  "projectRoot": "/Users/chen/Documents/fun/codebase-memory-mcp-bridge",
+  "techStack": {
+    "languages": [],
+    "frameworks": [],
+    "packageManager": null,
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "docs",
+      "scripts",
+      "src",
+      "tests"
+    ],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "build": {
+      "path": "build",
+      "purpose": "Build output",
+      "fileCount": 0,
+      "lastAccessed": 1785727187582,
+      "keyFiles": []
+    },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 9,
+      "lastAccessed": 1785727187582,
+      "keyFiles": [
+        "BENCHMARK.md",
+        "EVALUATION_PLAN.md",
+        "SECURITY-DISCLOSURE.md",
+        "graph-ui-screenshot.png",
+        "index.html"
+      ]
+    },
+    "graph-ui": {
+      "path": "graph-ui",
+      "purpose": null,
+      "fileCount": 7,
+      "lastAccessed": 1785727187583,
+      "keyFiles": [
+        "components.json",
+        "index.html",
+        "package-lock.json",
+        "package.json",
+        "tsconfig.json"
+      ]
+    },
+    "internal": {
+      "path": "internal",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1785727187583,
+      "keyFiles": []
+    },
+    "pkg": {
+      "path": "pkg",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1785727187583,
+      "keyFiles": []
+    },
+    "scripts": {
+      "path": "scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 44,
+      "lastAccessed": 1785727187584,
+      "keyFiles": [
+        "audit-grammar-security.sh",
+        "audit-license-provenance.py",
+        "benchmark-index.sh",
+        "benchmark-search-graph.sh",
+        "build.sh"
+      ]
+    },
+    "src": {
+      "path": "src",
+      "purpose": "Source code",
+      "fileCount": 1,
+      "lastAccessed": 1785727187585,
+      "keyFiles": [
+        "main.c"
+      ]
+    },
+    "test-infrastructure": {
+      "path": "test-infrastructure",
+      "purpose": null,
+      "fileCount": 6,
+      "lastAccessed": 1785727187586,
+      "keyFiles": [
+        "Dockerfile",
+        "Dockerfile.alpine",
+        "Dockerfile.lint",
+        "Dockerfile.mingw",
+        "docker-compose.yml"
+      ]
+    },
+    "tests": {
+      "path": "tests",
+      "purpose": "Test files",
+      "fileCount": 99,
+      "lastAccessed": 1785727187588,
+      "keyFiles": [
+        "grammar_cases.h",
+        "scale_contract.sh",
+        "smoke_guard.sh",
+        "test_ac.c",
+        "test_arena.c"
+      ]
+    },
+    "tools": {
+      "path": "tools",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1785727187590,
+      "keyFiles": []
+    },
+    "vendored": {
+      "path": "vendored",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1785727187591,
+      "keyFiles": []
+    },
+    "graph-ui/src": {
+      "path": "graph-ui/src",
+      "purpose": "Source code",
+      "fileCount": 3,
+      "lastAccessed": 1785727187594,
+      "keyFiles": [
+        "App.tsx",
+        "main.tsx",
+        "vite-env.d.ts"
+      ]
+    }
+  },
+  "hotPaths": [],
+  "userDirectives": []
+}

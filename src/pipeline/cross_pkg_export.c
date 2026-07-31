@@ -53,6 +53,7 @@ struct cbm_pkg_export_index {
     stored_entry_t **entries;  /* Array of all entries for bulk cleanup */
     int entry_count;
     int entry_capacity;
+    char *package_name;  /* Provider package name (owned; for phantom matching) */
 };
 
 /* ── Helpers ────────────────────────────────────────────────────── */
@@ -230,6 +231,7 @@ cbm_pkg_export_index_t *cbm_cross_pkg_build_export_index(cbm_store_t *provider_s
     ix->entries = NULL;
     ix->entry_count = 0;
     ix->entry_capacity = 0;
+    ix->package_name = NULL;
 
     /* Read package.json from provider_root */
     char pkg_json_path[PKG_EXPORT_BUF_PATH];
@@ -373,8 +375,11 @@ cbm_pkg_export_index_t *cbm_cross_pkg_build_export_index(cbm_store_t *provider_s
         return ix;
     }
 
-    collect_exported_defs(db, provider_project, entry_node.id, 0, PKG_EXPORT_MAX_DEPTH, pkg_name_copy, ix);
-    free(pkg_name_copy);
+    /* Transfer ownership of pkg_name_copy to the index (freed in _index_free);
+     * collect_exported_defs borrows it read-only. */
+    ix->package_name = pkg_name_copy;
+    collect_exported_defs(db, provider_project, entry_node.id, 0, PKG_EXPORT_MAX_DEPTH,
+                          ix->package_name, ix);
 
     return ix;
 }
@@ -405,6 +410,10 @@ int cbm_cross_pkg_export_lookup(const cbm_pkg_export_index_t *ix, const char *pk
     return 0;
 }
 
+const char *cbm_cross_pkg_export_package_name(const cbm_pkg_export_index_t *ix) {
+    return ix ? ix->package_name : NULL;
+}
+
 /* Free a hash-table key (callback for cbm_ht_foreach in _index_free). The
  * values (stored_entry_t*) are freed via the entries[] array below; this only
  * frees the borrowed keys. */
@@ -429,6 +438,8 @@ void cbm_cross_pkg_export_index_free(cbm_pkg_export_index_t *ix) {
         free_stored_entry(ix->entries[i]);
     }
     free(ix->entries);
+
+    free(ix->package_name);
 
     /* Free the hash table */
     if (ix->ht) {
