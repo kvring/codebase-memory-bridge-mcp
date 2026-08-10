@@ -2513,6 +2513,12 @@ static yyjson_doc *resolve_trace_edge_types(const char *args, const char *mode,
         "HTTP_CALLS",          "ASYNC_CALLS",       "DATA_FLOWS",    "CALLS",
         "CROSS_HTTP_CALLS",    "CROSS_ASYNC_CALLS", "CROSS_CHANNEL", "CROSS_GRPC_CALLS",
         "CROSS_GRAPHQL_CALLS", "CROSS_TRPC_CALLS"};
+    /* cross_repo mode: follow npm package-import bridge edges so trace_path can
+     * hop from a consumer call site across the package boundary into the
+     * provider's symbols (Task 5.1). */
+    static const char *mode_cross_repo[] = {
+        "CALLS", "IMPORTS", "CROSS_IMPORTS", "CROSS_CALLS",
+        "CROSS_IMPORTED_BY", "CROSS_CALLED_BY"};
 
     *out_count = 0;
 
@@ -2545,6 +2551,9 @@ static yyjson_doc *resolve_trace_edge_types(const char *args, const char *mode,
     } else if (mode && strcmp(mode, "cross_service") == 0) {
         defaults = mode_cross_svc;
         n_defaults = (int)(sizeof(mode_cross_svc) / sizeof(mode_cross_svc[0]));
+    } else if (mode && strcmp(mode, "cross_repo") == 0) {
+        defaults = mode_cross_repo;
+        n_defaults = (int)(sizeof(mode_cross_repo) / sizeof(mode_cross_repo[0]));
     }
     for (int i = 0; i < n_defaults; i++) {
         out_types[i] = defaults[i];
