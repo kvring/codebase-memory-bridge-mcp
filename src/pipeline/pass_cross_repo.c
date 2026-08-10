@@ -16,6 +16,8 @@
 #include "foundation/platform.h"
 #include "foundation/compat.h"
 #include "foundation/compat_fs.h"
+#include "cbm.h"              // cbm_extract_file, cbm_free_result, CBMFileResult, CBMCall
+#include "discover/discover.h" // cbm_language_for_filename
 
 #include <sqlite3/sqlite3.h>
 #include <stdint.h>
@@ -743,6 +745,178 @@ static int64_t lookup_node_id_by_qn(cbm_store_t *store, const char *project, con
     return id;
 }
 
+/* ── CROSS_CALLS re-derivation (Task 4.1) ─────────────────────────── */
+
+/* A bridged import: the consumer's local alias + the provider's resolved
+ * exported symbol + the phantom node id (CROSS_CALLS anchor). */
+typedef struct {
+    char local_name[CR_QN_BUF];
+    cbm_pkg_export_entry sym;
+    int64_t phantom_id;
+} bridged_symbol_t;
+
+/* Read a file's entire source into a heap buffer. Returns NULL on failure. */
+static char *bridge_read_file(const char *repo_root, const char *rel_path, int *out_len) {
+    char full[CR_PATH_BUF];
+    snprintf(full, sizeof(full), "%s/%s", repo_root, rel_path);
+    FILE *f = fopen(full, "rb");
+    if (!f) {
+        return NULL;
+    }
+    (void)fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    (void)fseek(f, 0, SEEK_SET);
+    if (size <= 0 || size > (long)CBM_PERCENT * CBM_SZ_1K * CBM_SZ_1K) {
+        (void)fclose(f);
+        return NULL;
+    }
+    char *buf = (char *)malloc((size_t)size + SKIP_ONE);
+    if (!buf) {
+        (void)fclose(f);
+        return NULL;
+    }
+    size_t n = fread(buf, SKIP_ONE, (size_t)size, f);
+    (void)fclose(f);
+    buf[n] = '\0';
+    *out_len = (int)n;
+    return buf;
+}
+
+/* Emit CROSS_CALLS (src DB: caller → phantom) + CROSS_CALLED_BY (tgt DB:
+ * provider symbol → file __file__ node) for calls in `rel_path` whose callee
+ * references a bridged import (obj.method or bare call). Returns edge count. */
+static int emit_cross_calls_for_importer(
+    cbm_store_t *src_store, const char *src_project, struct sqlite3 *src_db,
+    const char *src_root, const char *rel_path, int64_t importer_id,
+    const bridged_symbol_t *bridged, int bridged_count,
+    cbm_store_t *tgt_store, const char *tgt_project) {
+
+    /* Find the consumer's repo root from the projects table. */
+    char root_path[CR_PATH_BUF] = {0};
+    {
+        sqlite3_stmt *st = NULL;
+        if (sqlite3_prepare_v2(src_db, "SELECT root_path FROM projects WHERE name=?1 LIMIT 1", -1,
+                               &st, NULL) == SQLITE_OK) {
+            sqlite3_bind_text(st, SKIP_ONE, src_project, -1, SQLITE_STATIC);
+            if (sqlite3_step(st) == SQLITE_ROW) {
+                const char *rp = (const char *)sqlite3_column_text(st, 0);
+                if (rp) {
+                    snprintf(root_path, sizeof(root_path), "%s", rp);
+                }
+            }
+            sqlite3_finalize(st);
+        }
+    }
+    if (!root_path[0]) {
+        return 0;
+    }
+
+    int src_len = 0;
+    char *source = bridge_read_file(root_path, rel_path, &src_len);
+    if (!source) {
+        return 0;
+    }
+
+    CBMLanguage lang = cbm_language_for_filename(rel_path);
+    CBMFileResult *r = cbm_extract_file(source, src_len, lang, src_project, rel_path,
+                                        CBM_EXTRACT_BUDGET, NULL, NULL);
+    free(source);
+    if (!r) {
+        return 0;
+    }
+
+    int edges = 0;
+    for (int c = 0; c < r->calls.count; c++) {
+        const CBMCall *call = &r->calls.items[c];
+        const char *callee = call->callee_name;
+        if (!callee || !callee[0]) {
+            continue;
+        }
+
+        /* Try to match callee against a bridged import.
+         * Pattern 1: "LocalName.member" (obj.method call) → split at first '.'
+         * Pattern 2: bare "LocalName" (function call) → sym is the target. */
+        const bridged_symbol_t *match = NULL;
+        char member[CR_QN_BUF] = {0};
+        for (int b = 0; b < bridged_count; b++) {
+            const char *ln = bridged[b].local_name;
+            size_t lnlen = strlen(ln);
+            if (strncmp(callee, ln, lnlen) == 0) {
+                if (callee[lnlen] == '.') {
+                    /* obj.member — capture the member name. */
+                    snprintf(member, sizeof(member), "%s", callee + lnlen + SKIP_ONE);
+                    match = &bridged[b];
+                    break;
+                } else if (callee[lnlen] == '\0') {
+                    /* bare call to the imported symbol itself. */
+                    match = &bridged[b];
+                    break;
+                }
+            }
+        }
+        if (!match) {
+            continue;
+        }
+
+        /* The call site's enclosing function node (CROSS_CALLS source). */
+        int64_t caller_id = 0;
+        if (call->enclosing_func_qn && call->enclosing_func_qn[0]) {
+            cbm_node_t cn = {0};
+            if (cbm_store_find_node_by_qn(src_store, src_project, call->enclosing_func_qn, &cn) ==
+                CBM_STORE_OK) {
+                caller_id = cn.id;
+            }
+            cbm_node_free_fields(&cn);
+        }
+        if (!caller_id) {
+            caller_id = importer_id; /* fall back to the file __file__ node. */
+        }
+
+        /* target_symbol: the member (e.g. "ubtLog") if obj.member; else the
+         * imported symbol name itself. */
+        const char *target_sym = member[0] ? member : match->sym.qn ? match->sym.qn : "";
+
+        /* Forward (src DB): caller → phantom (the external package node). */
+        char fwd[CR_PROPS_BUF];
+        snprintf(fwd, sizeof(fwd),
+            "{\"target_project\":\"%s\",\"target_symbol\":\"%s\",\"target_file\":\"%s\","
+            "\"target_qn\":\"%s\",\"imported_name\":\"%s\",\"pkg\":\"%s\","
+            "\"strategy\":\"npm_call\",\"confidence\":0.85}",
+            tgt_project, target_sym, match->sym.file ? match->sym.file : "",
+            match->sym.qn ? match->sym.qn : "", match->local_name, "");
+        /* pkg is empty here — the phantom_name matching already resolved it;
+         * we embed the provider symbol QN for trace_path to follow. */
+        insert_cross_edge(src_store, src_project, caller_id, match->phantom_id, "CROSS_CALLS", fwd);
+
+        /* Reverse (tgt DB): provider symbol → its file __file__ node. */
+        int64_t rev_target = 0;
+        if (match->sym.file && match->sym.file[0]) {
+            char *file_qn = cbm_pipeline_fqn_compute(tgt_project, match->sym.file, "__file__");
+            if (file_qn) {
+                rev_target = lookup_node_id_by_qn(tgt_store, tgt_project, file_qn);
+                free(file_qn);
+            }
+        }
+        if (rev_target && rev_target != match->sym.node_id) {
+            char caller_name[CBM_SZ_256] = {0};
+            char caller_file[CBM_SZ_512] = {0};
+            lookup_node_info(src_db, caller_id, caller_name, sizeof(caller_name), caller_file,
+                             sizeof(caller_file));
+            char rev[CR_PROPS_BUF];
+            snprintf(rev, sizeof(rev),
+                "{\"target_project\":\"%s\",\"target_symbol\":\"%s\",\"target_file\":\"%s\","
+                "\"imported_name\":\"%s\",\"strategy\":\"npm_call\",\"confidence\":0.85}",
+                src_project, caller_name, caller_file, match->local_name);
+            insert_cross_edge(tgt_store, tgt_project, match->sym.node_id, rev_target,
+                              "CROSS_CALLED_BY", rev);
+        }
+        edges++;
+    }
+
+    cbm_free_result(r);
+    return edges;
+}
+
 cbm_cross_repo_result_t cbm_cross_repo_package_bridge(const char *project,
                                                       const char **target_projects,
                                                       int target_count) {
@@ -823,9 +997,16 @@ cbm_cross_repo_result_t cbm_cross_repo_package_bridge(const char *project,
         }
 
         if (scan) {
+            /* Collect bridged symbols + unique importers for CROSS_CALLS. */
+            bridged_symbol_t bridged[CR_MAX_EDGES];
+            int bridged_count = 0;
+            int64_t importers[CR_MAX_EDGES];
+            char importer_files[CR_MAX_EDGES][CBM_SZ_512];
+            int importer_count = 0;
+
             sqlite3_reset(scan);
             sqlite3_bind_text(scan, SKIP_ONE, project, -1, SQLITE_STATIC);
-            while (sqlite3_step(scan) == SQLITE_ROW) {
+            while (sqlite3_step(scan) == SQLITE_ROW && bridged_count < CR_MAX_EDGES) {
                 int64_t importer_id = sqlite3_column_int64(scan, 0);
                 int64_t phantom_id = sqlite3_column_int64(scan, SKIP_ONE);
                 const char *eprops = (const char *)sqlite3_column_text(scan, PAIR_LEN);
@@ -834,18 +1015,24 @@ cbm_cross_repo_result_t cbm_cross_repo_package_bridge(const char *project,
                     continue;
                 }
 
-                /* The imported symbol's original exported name (alias case). */
-                char imp_name[CR_QN_BUF] = {0};
-                json_str_prop(eprops, "exported_name", imp_name, sizeof(imp_name));
-                if (!imp_name[0]) {
-                    json_str_prop(eprops, "local_name", imp_name, sizeof(imp_name));
+                /* exported_name = provider's original (for index lookup);
+                 * local_name = consumer's alias (what calls reference). */
+                char exp_name[CR_QN_BUF] = {0};
+                json_str_prop(eprops, "exported_name", exp_name, sizeof(exp_name));
+                char local_name[CR_QN_BUF] = {0};
+                json_str_prop(eprops, "local_name", local_name, sizeof(local_name));
+                if (!exp_name[0] && local_name[0]) {
+                    snprintf(exp_name, sizeof(exp_name), "%s", local_name);
                 }
-                if (!imp_name[0]) {
+                if (!local_name[0] && exp_name[0]) {
+                    snprintf(local_name, sizeof(local_name), "%s", exp_name);
+                }
+                if (!exp_name[0]) {
                     continue;
                 }
 
                 cbm_pkg_export_entry sym = {0};
-                if (cbm_cross_pkg_export_lookup(ix, pkg, imp_name, &sym) != 0) {
+                if (cbm_cross_pkg_export_lookup(ix, pkg, exp_name, &sym) != 0) {
                     continue;
                 }
 
@@ -855,19 +1042,16 @@ cbm_cross_repo_result_t cbm_cross_repo_package_bridge(const char *project,
                 lookup_node_info(src_db, importer_id, imp_node_name, sizeof(imp_node_name),
                                  imp_file, sizeof(imp_file));
 
-                /* Forward (src DB): importer -> phantom. target_symbol = the
-                 * imported symbol name (== provider's exported name). */
+                /* Forward (src DB): importer -> phantom. */
                 char fwd[CR_PROPS_BUF];
                 snprintf(fwd, sizeof(fwd),
                     "{\"target_project\":\"%s\",\"target_symbol\":\"%s\",\"target_file\":\"%s\","
                     "\"target_qn\":\"%s\",\"imported_name\":\"%s\",\"pkg\":\"%s\","
                     "\"strategy\":\"npm_export\",\"confidence\":0.95}",
-                    tgt, imp_name, sym.file ? sym.file : "", sym.qn ? sym.qn : "", imp_name, pkg);
+                    tgt, exp_name, sym.file ? sym.file : "", sym.qn ? sym.qn : "", local_name, pkg);
                 insert_cross_edge(src_store, project, importer_id, phantom_id, "CROSS_IMPORTS", fwd);
 
-                /* Reverse (tgt DB): provider symbol -> its file __file__ node,
-                 * so "change a lib symbol → who's affected" is queryable in the
-                 * provider DB. */
+                /* Reverse (tgt DB): provider symbol -> its file __file__ node. */
                 int64_t rev_target = 0;
                 if (sym.file && sym.file[0]) {
                     char *file_qn = cbm_pipeline_fqn_compute(tgt, sym.file, "__file__");
@@ -882,11 +1066,42 @@ cbm_cross_repo_result_t cbm_cross_repo_package_bridge(const char *project,
                         "{\"target_project\":\"%s\",\"target_symbol\":\"%s\",\"target_file\":\"%s\","
                         "\"imported_name\":\"%s\",\"pkg\":\"%s\",\"strategy\":\"npm_export\","
                         "\"confidence\":0.95}",
-                        project, imp_node_name, imp_file, imp_name, pkg);
+                        project, imp_node_name, imp_file, local_name, pkg);
                     insert_cross_edge(tgt_store, tgt, sym.node_id, rev_target, "CROSS_IMPORTED_BY",
                                        rev);
                 }
                 result.cross_import_edges++;
+
+                /* Record for CROSS_CALLS re-derivation. */
+                snprintf(bridged[bridged_count].local_name, CR_QN_BUF, "%s", local_name);
+                bridged[bridged_count].sym = sym;
+                bridged[bridged_count].phantom_id = phantom_id;
+                bridged_count++;
+
+                /* Track unique importers (by id) + their file paths. */
+                bool found = false;
+                for (int k = 0; k < importer_count; k++) {
+                    if (importers[k] == importer_id) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found && importer_count < CR_MAX_EDGES) {
+                    importers[importer_count] = importer_id;
+                    snprintf(importer_files[importer_count], CBM_SZ_512, "%s", imp_file);
+                    importer_count++;
+                }
+            }
+
+            /* CROSS_CALLS (Task 4.1): re-extract calls in each bridged importer
+             * file and match callee names against the bridged local names. */
+            for (int k = 0; k < importer_count; k++) {
+                if (!importer_files[k][0]) {
+                    continue;
+                }
+                result.cross_call_edges += emit_cross_calls_for_importer(
+                    src_store, project, src_db, NULL, importer_files[k], importers[k],
+                    bridged, bridged_count, tgt_store, tgt);
             }
         }
 

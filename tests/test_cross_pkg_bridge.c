@@ -158,6 +158,62 @@ TEST(cross_pkg_bridge_imports_bidirectional) {
     PASS();
 }
 
+/* ── CROSS_CALLS (Task 4.1): call-site → provider method ────────── */
+
+TEST(cross_pkg_bridge_calls) {
+    /* Lib: exports TrainUBTLogUtil (a function the App calls directly). */
+    const BridgeFile lib_files[] = {
+        {"package.json", "{\"name\":\"@ctrip/lib\",\"main\":\"src/index.ts\"}\n"},
+        {"src/index.ts", "export { TrainUBTLogUtil } from './utils';\n"},
+        {"src/utils.ts", "export function TrainUBTLogUtil() { return 1; }\n"}};
+    char lib_dir[256];
+    snprintf(lib_dir, sizeof(lib_dir), "/tmp/cbm_cllib_XXXXXX");
+    ASSERT_NOT_NULL(cbm_mkdtemp(lib_dir));
+    BridgeProj lib_proj;
+    cbm_store_t *lib_store = bridge_index(&lib_proj, lib_dir, lib_files, 3);
+    ASSERT_NOT_NULL(lib_store);
+
+    /* App: imports TrainUBTLogUtil and CALLS it inside bookTicket. */
+    const BridgeFile app_files[] = {
+        {"app.ts", "import { TrainUBTLogUtil } from '@ctrip/lib';\n"
+                   "export function bookTicket() { return TrainUBTLogUtil(); }\n"}};
+    char app_dir[256];
+    snprintf(app_dir, sizeof(app_dir), "/tmp/cbm_clapp_XXXXXX");
+    ASSERT_NOT_NULL(cbm_mkdtemp(app_dir));
+    BridgeProj app_proj;
+    cbm_store_t *app_store = bridge_index(&app_proj, app_dir, app_files, 1);
+    ASSERT_NOT_NULL(app_store);
+    cbm_store_close(app_store);
+    cbm_store_close(lib_store);
+
+    /* Run the bridge. */
+    const char *targets[] = {lib_proj.project};
+    cbm_cross_repo_result_t r =
+        cbm_cross_repo_package_bridge(app_proj.project, targets, 1);
+    ASSERT_GT(r.cross_import_edges, 0);
+
+    /* CROSS_CALLS: App DB should have >=1 CROSS_CALLS edge from bookTicket
+     * (or the app file) → the phantom, with provider symbol info in props. */
+    cbm_store_t *app_check = cbm_store_open_path(app_proj.dbpath);
+    ASSERT_NOT_NULL(app_check);
+    int app_calls = cbm_store_count_edges_by_type(app_check, app_proj.project, "CROSS_CALLS");
+    ASSERT_GT(app_calls, 0);
+
+    /* Lib DB should have CROSS_CALLED_BY (reverse). */
+    cbm_store_t *lib_check = cbm_store_open_path(lib_proj.dbpath);
+    ASSERT_NOT_NULL(lib_check);
+    int lib_called_by =
+        cbm_store_count_edges_by_type(lib_check, lib_proj.project, "CROSS_CALLED_BY");
+    ASSERT_GT(lib_called_by, 0);
+
+    cbm_store_close(app_check);
+    cbm_store_close(lib_check);
+    bridge_cleanup(&app_proj, NULL);
+    bridge_cleanup(&lib_proj, NULL);
+    PASS();
+}
+
 SUITE(cross_pkg_bridge) {
     RUN_TEST(cross_pkg_bridge_imports_bidirectional);
+    RUN_TEST(cross_pkg_bridge_calls);
 }
