@@ -1,0 +1,23 @@
+tests/test_cross_pkg_bridge.c
+  s_30d4e85c25767e::t_86ba3b57a88a6d 251-256
+  s_30d4e85c25767e::t_8d2c2e36c20094 216-250,258-265,267-277,279-283,287
+  s_30d4e85c25767e::t_0084802620628e 278
+  s_30d4e85c25767e::t_286c69cb94662b 266
+  s_30d4e85c25767e::t_58a1b7b3db5c8b 257
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.39-trip",
+  "base_commit_sha": "87ffdd5cb8fb089eb39e9eb90287012a2f451b91",
+  "prompts": {},
+  "sessions": {
+    "s_30d4e85c25767e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cba3e238-da9c-475e-80fa-9bec4a1a13c9",
+        "model": "ep-bpcl3tow"
+      },
+      "human_author": "xiaojunc <xiaojunc@trip.com>"
+    }
+  }
+}
