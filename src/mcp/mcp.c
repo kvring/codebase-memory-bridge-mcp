@@ -3820,6 +3820,32 @@ static char *handle_get_code_snippet(cbm_mcp_server_t *srv, const char *args) {
         return cbm_mcp_text_result("qualified_name is required", true);
     }
 
+    /* Cross-project QN resolution (Task 5.3): if no explicit project arg was
+     * passed, try to derive the project from the QN's first segment (QN format
+     * is <project>.<path>.<name>). If a .db file exists for that segment, switch
+     * to it so get_code_snippet can fetch source from a different project's DB
+     * after trace_path crossed the repo boundary. */
+    if (!project && qn[0]) {
+        char *dot = strchr(qn, '.');
+        if (dot && dot > qn) {
+            size_t plen = (size_t)(dot - qn);
+            char qn_project[CBM_SZ_256];
+            if (plen < sizeof(qn_project)) {
+                memcpy(qn_project, qn, plen);
+                qn_project[plen] = '\0';
+                /* Check if a .db file exists for this project name. */
+                char db_path[CBM_SZ_1K];
+                project_db_path(qn_project, db_path, sizeof(db_path));
+                if (db_path[0]) {
+                    struct stat st;
+                    if (stat(db_path, &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0) {
+                        project = heap_strdup(qn_project);
+                    }
+                }
+            }
+        }
+    }
+
     cbm_store_t *store = resolve_store(srv, project);
     if (!store) {
         char *_err = build_project_list_error("project not found or not indexed");
