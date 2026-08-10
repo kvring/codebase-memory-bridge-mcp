@@ -2763,6 +2763,171 @@ static void bfs_union_same_name(cbm_store_t *store, const cbm_node_t *nodes, int
     }
 }
 
+/* ── Cross-DB stitch BFS (Task 5.2) ─────────────────────────────── */
+
+/* Cross-hop budget: how many times trace_path can open a different project's
+ * DB and continue BFS there. Prevents unbounded cross-repo traversal. */
+enum { CROSS_HOP_BUDGET = 3 };
+
+/* True if an edge type is a cross-repo package-bridge edge carrying
+ * target_project in its properties_json. */
+static bool is_cross_bridge_edge(const char *type) {
+    if (!type) return false;
+    return strcmp(type, "CROSS_IMPORTS") == 0 || strcmp(type, "CROSS_CALLS") == 0 ||
+           strcmp(type, "CROSS_IMPORTED_BY") == 0 || strcmp(type, "CROSS_CALLED_BY") == 0;
+}
+
+/* Extract a JSON string property from a properties_json string.
+ * Writes into buf; returns buf on success, NULL on miss. (Mirrors the
+ * json_str_prop helper in pass_cross_repo.c — duplicated here to avoid
+ * coupling mcp.c to pipeline internals.) */
+static const char *trace_json_str_prop(const char *json, const char *key, char *buf, size_t bufsz) {
+    if (!json || !key) return NULL;
+    char pat[CBM_SZ_128];
+    snprintf(pat, sizeof(pat), "\"%s\":\"", key);
+    const char *start = strstr(json, pat);
+    if (!start) return NULL;
+    start += strlen(pat);
+    const char *end = strchr(start, '"');
+    if (!end) return NULL;
+    size_t len = (size_t)(end - start);
+    if (len >= bufsz) len = bufsz - 1;
+    memcpy(buf, start, len);
+    buf[len] = '\0';
+    return buf;
+}
+
+/* After the in-store BFS, scan for CROSS_* bridge edges, open the target
+ * project's store, find the target node by QN, run BFS there, and merge the
+ * results into `out` (marking cross-project nodes with a JSON field in
+ * bfs_to_json_array via the node's properties). Recursive with a budget.
+ * `visited_qns` is a cross-store dedup set (prevents revisiting the same node
+ * across hops). `origin_project` is the project that started the trace (for
+ * logging). */
+static void stitch_cross_hops(cbm_mcp_server_t *srv, const char *origin_project,
+                              const char *direction, const char **edge_types,
+                              int edge_type_count, int depth,
+                              cbm_traverse_result_t *out, int budget,
+                              const char *current_project) {
+    if (budget <= 0 || !out || out->edge_count == 0) {
+        return;
+    }
+
+    for (int i = 0; i < out->edge_count; i++) {
+        const cbm_edge_info_t *e = &out->edges[i];
+        if (!is_cross_bridge_edge(e->type) || !e->properties_json) {
+            continue;
+        }
+
+        /* Extract the target project + target QN from the edge props. */
+        char tgt_project[CBM_SZ_256] = {0};
+        char tgt_qn[CBM_SZ_512] = {0};
+        if (!trace_json_str_prop(e->properties_json, "target_project", tgt_project,
+                                 sizeof(tgt_project))) {
+            continue;
+        }
+        if (!trace_json_str_prop(e->properties_json, "target_qn", tgt_qn, sizeof(tgt_qn))) {
+            /* Fall back to target_symbol if target_qn is absent. */
+            if (!trace_json_str_prop(e->properties_json, "target_symbol", tgt_qn,
+                                     sizeof(tgt_qn))) {
+                continue;
+            }
+        }
+
+        /* Don't hop back to the project we're already in. */
+        if (strcmp(tgt_project, current_project) == 0) {
+            continue;
+        }
+
+        /* Open the target store (resolve_store caches it). */
+        cbm_store_t *tgt_store = resolve_store(srv, tgt_project);
+        if (!tgt_store) {
+            continue; /* target not indexed — edge exists but can't follow. */
+        }
+
+        /* Find the target node by QN in the target store. */
+        cbm_node_t tgt_node = {0};
+        if (cbm_store_find_node_by_qn(tgt_store, tgt_project, tgt_qn, &tgt_node) !=
+            CBM_STORE_OK) {
+            cbm_node_free_fields(&tgt_node);
+            continue;
+        }
+
+        /* Cross-store dedup: skip if already visited this QN. */
+        bool already = false;
+        for (int j = 0; j < out->visited_count; j++) {
+            if (out->visited[j].node.qualified_name &&
+                strcmp(out->visited[j].node.qualified_name, tgt_qn) == 0) {
+                already = true;
+                break;
+            }
+        }
+        if (already) {
+            cbm_node_free_fields(&tgt_node);
+            continue;
+        }
+
+        /* Add the target node to the output (marked cross_project). */
+        int hop = 0;
+        for (int j = 0; j < out->visited_count; j++) {
+            if (out->visited[j].hop > hop) {
+                hop = out->visited[j].hop;
+            }
+        }
+        hop++; /* one level deeper than the deepest existing node. */
+
+        /* Grow visited array. */
+        int vcap = out->visited_count + 1;
+        out->visited = safe_realloc(out->visited, (size_t)vcap * sizeof(cbm_node_hop_t));
+        out->visited[out->visited_count].node = tgt_node;
+        out->visited[out->visited_count].hop = hop;
+        /* Tag the node's properties_json to carry cross_project=true for
+         * bfs_to_json_array to surface. We can't modify the borrowed
+         * properties_json, so we rely on the hop > 0 + the node being from a
+         * different project (its qualified_name has a different project prefix)
+         * to indicate a cross-repo hop. */
+        out->visited_count++;
+        /* Note: tgt_node ownership moved into visited; don't free_fields. */
+
+        /* Run BFS from the target node in the target store, and merge. */
+        cbm_traverse_result_t tgt_tr = {0};
+        cbm_store_bfs(tgt_store, tgt_node.id, direction, edge_types, edge_type_count,
+                      depth - hop, MCP_BFS_LIMIT, &tgt_tr);
+
+        /* Merge the target BFS results into `out`. */
+        for (int j = 0; j < tgt_tr.visited_count; j++) {
+            bool dup = false;
+            for (int k = 0; k < out->visited_count; k++) {
+                if (out->visited[k].node.id == tgt_tr.visited[j].node.id &&
+                    strcmp(out->visited[k].node.qualified_name ? out->visited[k].node.qualified_name : "",
+                           tgt_tr.visited[j].node.qualified_name ? tgt_tr.visited[j].node.qualified_name : "") == 0) {
+                    dup = true;
+                    break;
+                }
+            }
+            if (dup) {
+                continue;
+            }
+            int vcap2 = out->visited_count + 1;
+            out->visited = safe_realloc(out->visited, (size_t)vcap2 * sizeof(cbm_node_hop_t));
+            tgt_tr.visited[j].hop += hop;
+            out->visited[out->visited_count++] = tgt_tr.visited[j];
+            memset(&tgt_tr.visited[j], 0, sizeof(tgt_tr.visited[j]));
+        }
+        for (int j = 0; j < tgt_tr.edge_count; j++) {
+            int ecap = out->edge_count + 1;
+            out->edges = safe_realloc(out->edges, (size_t)ecap * sizeof(cbm_edge_info_t));
+            out->edges[out->edge_count++] = tgt_tr.edges[j];
+            memset(&tgt_tr.edges[j], 0, sizeof(tgt_tr.edges[j]));
+        }
+        cbm_store_traverse_free(&tgt_tr);
+
+        /* Recurse with budget - 1 from the target project. */
+        stitch_cross_hops(srv, origin_project, direction, edge_types, edge_type_count, depth,
+                          out, budget - 1, tgt_project);
+    }
+}
+
 static char *handle_trace_call_path(cbm_mcp_server_t *srv, const char *args) {
     char *func_name = cbm_mcp_get_string_arg(args, "function_name");
     char *project = get_project_arg(args);
@@ -2894,6 +3059,12 @@ static char *handle_trace_call_path(cbm_mcp_server_t *srv, const char *args) {
     if (do_outbound) {
         bfs_union_same_name(store, nodes, node_count, "outbound", edge_types, edge_type_count,
                             depth, &tr_out);
+        /* Cross-DB stitch (Task 5.2): if mode=cross_repo, follow CROSS_* bridge
+         * edges into target project DBs and continue BFS there. */
+        if (mode && strcmp(mode, "cross_repo") == 0) {
+            stitch_cross_hops(srv, project, "outbound", edge_types, edge_type_count, depth,
+                              &tr_out, CROSS_HOP_BUDGET, project);
+        }
         yyjson_mut_obj_add_val(
             doc, root, "callees",
             bfs_to_json_array(doc, &tr_out, risk_labels, include_tests, data_flow));
@@ -2902,6 +3073,10 @@ static char *handle_trace_call_path(cbm_mcp_server_t *srv, const char *args) {
     if (do_inbound) {
         bfs_union_same_name(store, nodes, node_count, "inbound", edge_types, edge_type_count, depth,
                             &tr_in);
+        if (mode && strcmp(mode, "cross_repo") == 0) {
+            stitch_cross_hops(srv, project, "inbound", edge_types, edge_type_count, depth,
+                              &tr_in, CROSS_HOP_BUDGET, project);
+        }
         yyjson_mut_obj_add_val(
             doc, root, "callers",
             bfs_to_json_array(doc, &tr_in, risk_labels, include_tests, data_flow));
