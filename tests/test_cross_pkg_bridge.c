@@ -213,7 +213,76 @@ TEST(cross_pkg_bridge_calls) {
     PASS();
 }
 
+/* ── E2E (Task 6.1): index both, bridge, trace_path crosses repos ── */
+
+TEST(cross_pkg_e2e_trace_cross_repo) {
+    /* Lib: exports TrainUBTLogUtil. */
+    const BridgeFile lib_files[] = {
+        {"package.json", "{\"name\":\"@ctrip/lib\",\"main\":\"src/index.ts\"}\n"},
+        {"src/index.ts", "export { TrainUBTLogUtil } from './utils';\n"},
+        {"src/utils.ts", "export function TrainUBTLogUtil() { return 42; }\n"}};
+    char lib_dir[256];
+    snprintf(lib_dir, sizeof(lib_dir), "/tmp/cbm_e2elib_XXXXXX");
+    ASSERT_NOT_NULL(cbm_mkdtemp(lib_dir));
+    BridgeProj lib_proj;
+    cbm_store_t *lib_store = bridge_index(&lib_proj, lib_dir, lib_files, 3);
+    ASSERT_NOT_NULL(lib_store);
+    cbm_store_close(lib_store);
+
+    /* App: imports + calls TrainUBTLogUtil inside bookTicket. */
+    const BridgeFile app_files[] = {
+        {"app.ts", "import { TrainUBTLogUtil } from '@ctrip/lib';\n"
+                   "export function bookTicket() { return TrainUBTLogUtil(); }\n"}};
+    char app_dir[256];
+    snprintf(app_dir, sizeof(app_dir), "/tmp/cbm_e2eapp_XXXXXX");
+    ASSERT_NOT_NULL(cbm_mkdtemp(app_dir));
+    BridgeProj app_proj;
+    cbm_store_t *app_store = bridge_index(&app_proj, app_dir, app_files, 1);
+    ASSERT_NOT_NULL(app_store);
+    cbm_store_close(app_store);
+
+    /* Run the bridge. */
+    const char *targets[] = {lib_proj.project};
+    cbm_cross_repo_result_t r =
+        cbm_cross_repo_package_bridge(app_proj.project, targets, 1);
+    ASSERT_GT(r.cross_import_edges, 0);
+    ASSERT_GT(r.cross_call_edges, 0);
+
+    /* The bridge wrote CROSS_CALLS edges via its own store handle. The srv's
+     * cached store (from indexing) can't see them (SQLite WAL visibility is
+     * per-connection). Create a fresh srv so resolve_store opens a new
+     * connection that sees the bridge's committed edges. */
+    cbm_mcp_server_t *trace_srv = cbm_mcp_server_new(NULL);
+    ASSERT_NOT_NULL(trace_srv);
+
+    /* trace_path via MCP handler: bookTicket outbound, mode=cross_repo.
+     * The result JSON should contain a node from the Lib project (its QN
+     * starts with the Lib project name), proving the BFS crossed DBs. */
+    char trace_args[700];
+    snprintf(trace_args, sizeof(trace_args),
+             "{\"function_name\":\"bookTicket\",\"project\":\"%s\","
+             "\"direction\":\"outbound\",\"mode\":\"cross_repo\",\"depth\":5}",
+             app_proj.project);
+    char *trace_json = cbm_mcp_handle_tool(trace_srv, "trace_path", trace_args);
+    ASSERT_NOT_NULL(trace_json);
+
+    /* The trace result should mention the Lib project name somewhere (the
+     * cross-hopped node carries a QN prefixed with the Lib project). */
+    bool found_cross = strstr(trace_json, lib_proj.project) != NULL;
+    if (!found_cross) {
+        fprintf(stderr, "  [e2e] trace did not reach Lib project. trace_json=%s\n", trace_json);
+    }
+    ASSERT_TRUE(found_cross);
+
+    free(trace_json);
+    cbm_mcp_server_free(trace_srv);
+    bridge_cleanup(&app_proj, NULL);
+    bridge_cleanup(&lib_proj, NULL);
+    PASS();
+}
+
 SUITE(cross_pkg_bridge) {
     RUN_TEST(cross_pkg_bridge_imports_bidirectional);
     RUN_TEST(cross_pkg_bridge_calls);
+    RUN_TEST(cross_pkg_e2e_trace_cross_repo);
 }
