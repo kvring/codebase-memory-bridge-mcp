@@ -3043,7 +3043,8 @@ static char *handle_cross_repo_mode(const char *repo_path, const char *args) {
     yyjson_doc_free(jdoc);
 
     int total = result.http_edges + result.async_edges + result.channel_edges + result.grpc_edges +
-                result.graphql_edges + result.trpc_edges + result.cross_import_edges;
+                result.graphql_edges + result.trpc_edges + result.cross_import_edges +
+                result.cross_call_edges;
     yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
     yyjson_mut_val *root = yyjson_mut_obj(doc);
     yyjson_mut_doc_set_root(doc, root);
@@ -3058,6 +3059,7 @@ static char *handle_cross_repo_mode(const char *repo_path, const char *args) {
     yyjson_mut_obj_add_int(doc, root, "cross_graphql_calls", result.graphql_edges);
     yyjson_mut_obj_add_int(doc, root, "cross_trpc_calls", result.trpc_edges);
     yyjson_mut_obj_add_int(doc, root, "cross_import_edges", result.cross_import_edges);
+    yyjson_mut_obj_add_int(doc, root, "cross_call_edges", result.cross_call_edges);
     yyjson_mut_obj_add_int(doc, root, "total_cross_edges", total);
     yyjson_mut_obj_add_real(doc, root, "elapsed_ms", result.elapsed_ms);
 
