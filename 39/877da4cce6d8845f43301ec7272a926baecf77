@@ -1,0 +1,22 @@
+src/pipeline/cross_pkg_export.c
+  s_30d4e85c25767e::t_ce9aceaebc3166 349-357
+tests/test_cross_pkg_export.c
+  s_30d4e85c25767e::t_f2edd6e9902a04 153-190
+  s_30d4e85c25767e::t_4f4264ed698bbc 239
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.40-trip",
+  "base_commit_sha": "39877da4cce6d8845f43301ec7272a926baecf77",
+  "prompts": {},
+  "sessions": {
+    "s_30d4e85c25767e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cba3e238-da9c-475e-80fa-9bec4a1a13c9",
+        "model": "ep-tavmzh6e"
+      },
+      "human_author": "xiaojunc <xiaojunc@trip.com>"
+    }
+  }
+}
