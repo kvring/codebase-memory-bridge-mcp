@@ -150,6 +150,44 @@ TEST(cross_pkg_export_resolves_reexport) {
     PASS();
 }
 
+/* npm convention: main/exports carry a "./" prefix ("./src/index.ts").
+ * The entry QN must strip it, else tokenize_path keeps "." as a literal
+ * segment and the entry node is never found (empty index). */
+TEST(cross_pkg_export_dot_slash_entry) {
+    const CPEFile files[] = {
+        {
+            "package.json",
+            "{\"name\":\"@ctrip/lib\",\"main\":\"./src/index.ts\"}\n",
+        },
+        {
+            "src/index.ts",
+            "export { TrainUBTLogUtil } from './utils';\n",
+        },
+        {
+            "src/utils.ts",
+            "export function TrainUBTLogUtil() {}\n",
+        },
+    };
+
+    CPELangProj lp;
+    cbm_store_t *store = cpe_index_files(&lp, files, 3);
+    ASSERT_NOT_NULL(store);
+
+    cbm_pkg_export_index_t *ix = cbm_cross_pkg_build_export_index(store, lp.project, lp.tmpdir);
+    ASSERT_NOT_NULL(ix);
+
+    cbm_pkg_export_entry e;
+    if (cbm_cross_pkg_export_lookup(ix, "@ctrip/lib", "TrainUBTLogUtil", &e) != 0) {
+        FAIL("dot-slash main entry must resolve like a bare path");
+    }
+    ASSERT_NOT_NULL(e.qn);
+    ASSERT(strstr(e.qn, "TrainUBTLogUtil") != NULL);
+
+    cbm_cross_pkg_export_index_free(ix);
+    cpe_cleanup(&lp, store);
+    PASS();
+}
+
 TEST(cross_pkg_export_cycle_terminates) {
     /* Fixture with a re-export cycle:
      *   package.json  {"name":"@ctrip/cyclic","main":"src/a.ts"}
@@ -198,5 +236,6 @@ TEST(cross_pkg_export_cycle_terminates) {
 
 SUITE(cross_pkg_export) {
     RUN_TEST(cross_pkg_export_resolves_reexport);
+    RUN_TEST(cross_pkg_export_dot_slash_entry);
     RUN_TEST(cross_pkg_export_cycle_terminates);
 }

@@ -346,8 +346,15 @@ cbm_pkg_export_index_t *cbm_cross_pkg_build_export_index(cbm_store_t *provider_s
     /* Convert entry relative path to the file's __file__ node QN. The indexer
      * creates each file's node via fqn_compute(project, rel, "__file__") →
      * "<project>.<path>.__file__" (see create_imports_edges); fqn_module would
-     * yield "<project>.<path>" which is NOT a node QN, so the lookup misses. */
-    char *entry_qn = cbm_pipeline_fqn_compute(provider_project, entry_rel_buf, "__file__");
+     * yield "<project>.<path>" which is NOT a node QN, so the lookup misses.
+     * npm convention: main/exports often carry a "./" prefix ("./x.js") — strip
+     * it, else tokenize_path keeps "." as a literal segment and the QN gains a
+     * spurious empty part ("<project>..x.__file__") that never matches. */
+    const char *entry_clean = entry_rel_buf;
+    if (entry_clean[0] == '.' && entry_clean[1] == '/') {
+        entry_clean += PAIR_LEN;
+    }
+    char *entry_qn = cbm_pipeline_fqn_compute(provider_project, entry_clean, "__file__");
     if (!entry_qn) {
         cbm_log_info("pkg_export: failed to build entry QN", "entry", entry_rel_buf);
         free(pkg_name_copy);
