@@ -1,0 +1,20 @@
+src/mcp/mcp.c
+  s_30d4e85c25767e::t_ca4c664a4bb378 2516-2521
+  s_30d4e85c25767e::t_75b1a3a1b03f23 2554-2556
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.39-trip",
+  "base_commit_sha": "20c87c9d31a226c556c6f2c5032a7b2a0c6685aa",
+  "prompts": {},
+  "sessions": {
+    "s_30d4e85c25767e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cba3e238-da9c-475e-80fa-9bec4a1a13c9",
+        "model": "ep-bpcl3tow"
+      },
+      "human_author": "xiaojunc <xiaojunc@trip.com>"
+    }
+  }
+}

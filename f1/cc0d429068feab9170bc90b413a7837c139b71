@@ -1,0 +1,21 @@
+src/pipeline/cross_pkg_export.c
+  s_30d4e85c25767e::t_8c48c533caf8c7 303-305,307
+src/pipeline/pass_cross_repo.c
+  s_30d4e85c25767e::t_bb3a06b753b965 699-703,708-711,713-729,731
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.43-trip",
+  "base_commit_sha": "f1cc0d429068feab9170bc90b413a7837c139b71",
+  "prompts": {},
+  "sessions": {
+    "s_30d4e85c25767e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cba3e238-da9c-475e-80fa-9bec4a1a13c9",
+        "model": "ep-bpcl3tow"
+      },
+      "human_author": "xiaojunc <xiaojunc@trip.com>"
+    }
+  }
+}

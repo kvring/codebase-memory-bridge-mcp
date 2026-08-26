@@ -1,0 +1,31 @@
+tests/test_edge_imports.c
+  s_30d4e85c25767e::t_2274fa789f4ca4 894-928
+  s_30d4e85c25767e::t_149f272edf76eb 936
+src/pipeline/pass_definitions.c
+  s_30d4e85c25767e::t_6898cdb8ee2d25 441
+  s_30d4e85c25767e::t_a0f78188bb9799 442-444
+src/pipeline/pass_parallel.c
+  s_30d4e85c25767e::t_2121dc0aeb882b 884,886,888
+internal/cbm/cbm.h
+  s_30d4e85c25767e::t_45af979553d5bd 243-245
+internal/cbm/extract_imports.c
+  s_30d4e85c25767e::t_dc151188c53529 201
+  s_30d4e85c25767e::t_bc01be6255a9d1 200
+  s_30d4e85c25767e::t_354f5105405246 356-360
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.38-trip",
+  "base_commit_sha": "01256bdd96f5a791c22340b01b8eb266e0766706",
+  "prompts": {},
+  "sessions": {
+    "s_30d4e85c25767e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cba3e238-da9c-475e-80fa-9bec4a1a13c9",
+        "model": "glm-5.2"
+      },
+      "human_author": null
+    }
+  }
+}

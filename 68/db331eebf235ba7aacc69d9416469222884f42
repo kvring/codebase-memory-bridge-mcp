@@ -1,0 +1,38 @@
+src/pipeline/pass_cross_repo.h
+  s_30d4e85c25767e::t_522e7edd5b6aaa 18-19,34-45
+  s_30d4e85c25767e::t_00aabd8715b998 76-79
+src/pipeline/pass_cross_repo.c
+  s_30d4e85c25767e::t_da1feb8c2b0ba4 780,786-789
+  s_30d4e85c25767e::t_6c8b43003ad1d4 830,832
+  s_30d4e85c25767e::t_cd20880fd0176b 116-120
+  s_30d4e85c25767e::t_1a2c3347182f69 694-779,781-785,790-829,831,833-913
+tests/test_main.c
+  s_30d4e85c25767e::t_57f5a02c6b43dc 110
+  s_30d4e85c25767e::t_68f2fe8937f935 272
+Makefile.cbm
+  s_30d4e85c25767e::t_607dd66c924729 336
+tests/test_cross_pkg_bridge.c
+  s_30d4e85c25767e::t_3c7ba74f3dcbd0 9,13
+  s_30d4e85c25767e::t_2d82d12edc27bb 1-8,10-12,14-163
+src/pipeline/cross_pkg_export.c
+  s_30d4e85c25767e::t_9b613ed1f421fc 234
+  s_30d4e85c25767e::t_77e89d3b776de8 413-416,442
+  s_30d4e85c25767e::t_69b31bd554b3e4 378-382
+  s_30d4e85c25767e::t_3d039fd68eafef 56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.39-trip",
+  "base_commit_sha": "68db331eebf235ba7aacc69d9416469222884f42",
+  "prompts": {},
+  "sessions": {
+    "s_30d4e85c25767e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cba3e238-da9c-475e-80fa-9bec4a1a13c9",
+        "model": "glm-5.2"
+      },
+      "human_author": null
+    }
+  }
+}
