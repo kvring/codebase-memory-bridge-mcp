@@ -156,12 +156,14 @@ Removes all agent configs, skills, hooks, and instructions. Does not remove the 
 
 ### Cross-repo intelligence
 - **`CROSS_*` edges** link nodes across multiple repos indexed under the same store
+- **npm package-import bridge** — symbol-level cross-repo linkage for npm dependencies. External imports materialize phantom nodes; provider export index matches imported symbols to real definitions. Bidirectional `CROSS_IMPORTS`/`CROSS_CALLS` + reverse `CROSS_IMPORTED_BY`/`CROSS_CALLED_BY`. `trace_path(mode="cross_repo")` crosses project DBs via multi-store stitch BFS. `get_code_snippet` auto-switches store by QN prefix.
 - **Multi-galaxy 3D UI layout** for cross-repo architecture visualization
 - **Cross-repo architecture summary** combining services, routes, and dependencies across the indexed fleet
 
 ### Edge types (selected)
 - `CALLS`, `IMPORTS`, `DEFINES`, `IMPLEMENTS`, `INHERITS`
 - `HTTP_CALLS`, `ASYNC_CALLS` (cross-service)
+- `CROSS_IMPORTS`, `CROSS_CALLS`, `CROSS_IMPORTED_BY`, `CROSS_CALLED_BY` (npm package bridge)
 - `EMITS`, `LISTENS_ON` (channels)
 - `DATA_FLOWS` with arg-to-param mapping + field access chains
 - `SIMILAR_TO` (MinHash + LSH near-clone detection, Jaccard scored)
