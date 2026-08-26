@@ -696,18 +696,39 @@ cbm_cross_repo_result_t cbm_cross_repo_match(const char *project, const char **t
 
 /* ── npm package-import bridge (Task 3.2) ─────────────────────────── */
 
-/* Match a phantom name (the imported module_path, e.g. "@ctrip/lib" or
- * "@ctrip/lib/sub") against a provider package name. True on exact match or
- * when the phantom is a subpath import of the package. */
+/* Match a phantom name (the imported module_path after alias resolution,
+ * e.g. "train_rn_common" or "@ctrip/lib/sub") against a provider package name
+ * (e.g. "@ctrip/train_rn_common"). Babel module-resolver aliases can strip the
+ * @scope/ prefix ("train_rn_common" → "@ctrip/train_rn_common"), so we match
+ * on: exact, subpath, or pkg-name's last segment after '/' (scope stripping). */
 static bool phantom_matches_pkg(const char *phantom_name, const char *pkg) {
     if (!phantom_name || !pkg) {
         return false;
     }
-    size_t pl = strlen(pkg);
-    if (strncmp(phantom_name, pkg, pl) != 0) {
-        return false;
+    /* Exact match. */
+    if (strcmp(phantom_name, pkg) == 0) {
+        return true;
     }
-    return phantom_name[pl] == '\0' || phantom_name[pl] == '/';
+    size_t pl = strlen(pkg);
+    /* Subpath: phantom starts with pkg + '/'. */
+    if (strncmp(phantom_name, pkg, pl) == 0 && phantom_name[pl] == '/') {
+        return true;
+    }
+    /* Scope stripping: pkg is "@scope/name", phantom is "name".
+     * Extract pkg's last segment after '/' and compare to phantom. */
+    const char *pkg_last = strrchr(pkg, '/');
+    if (pkg_last) {
+        pkg_last++;
+        if (strcmp(phantom_name, pkg_last) == 0) {
+            return true;
+        }
+        /* Also check subpath of the scope-stripped form. */
+        size_t ll = strlen(pkg_last);
+        if (strncmp(phantom_name, pkg_last, ll) == 0 && phantom_name[ll] == '/') {
+            return true;
+        }
+    }
+    return false;
 }
 
 /* Read a project's root_path from its store's projects table. Heap-allocated. */
