@@ -300,9 +300,11 @@ cbm_pkg_export_index_t *cbm_cross_pkg_build_export_index(cbm_store_t *provider_s
         return ix;
     }
 
-    /* Resolve entry point: try exports["."], then main, then module, then default */
+    /* Resolve entry point: try exports["."], then main, then module, then default.
+     * Start with NULL so the fallback chain works — a non-NULL default would
+     * short-circuit the main/module checks. */
     char entry_rel_buf[512] = {0};
-    const char *entry_rel = "src/index.ts"; /* default */
+    const char *entry_rel = NULL;
 
     yyjson_val *exports = yyjson_obj_get(root, "exports");
     if (yyjson_is_obj(exports)) {
@@ -310,7 +312,6 @@ cbm_pkg_export_index_t *cbm_cross_pkg_build_export_index(cbm_store_t *provider_s
         if (yyjson_is_str(dot)) {
             entry_rel = yyjson_get_str(dot);
         } else if (yyjson_is_obj(dot)) {
-            /* exports["."] is an object with import/require/types keys */
             yyjson_val *import_key = yyjson_obj_get(dot, "import");
             if (yyjson_is_str(import_key)) {
                 entry_rel = yyjson_get_str(import_key);
