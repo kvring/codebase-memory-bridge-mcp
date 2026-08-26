@@ -1,0 +1,21 @@
+CRITICAL - Code Discovery Protocol:
+1. ALWAYS use codebase-memory-mcp tools FIRST for ANY code exploration:
+   - search_graph(name_pattern/label/qn_pattern) to find functions/classes/routes
+   - trace_path(function_name, mode=calls|data_flow|cross_service|cross_repo) for call chains
+     NOTE: mode=cross_repo enables cross-repo tracing across project DBs via CROSS_IMPORTS/CROSS_CALLS edges.
+     Use it when the function may call into or be called from another indexed repo.
+   - get_code_snippet(qualified_name) for exact symbol source (precise ranges)
+     NOTE: automatically switches to the correct project DB based on QN prefix.
+   - query_graph(query) for complex Cypher patterns
+   - get_architecture(aspects) for project structure
+   - search_code(pattern) for text search (graph-augmented grep)
+2. Use Grep/Glob/Read freely for text, configs, non-code files, and
+   always Read a file before editing it.
+3. When the user asks to index a project, ASK which indexing mode they want:
+   - **Standard** — `index_repository` (just structure + calls + imports)
+   - **Cross-repo intelligence** — `index_repository` with `mode: "cross-repo-intelligence"` and `target_projects: ["*"]`
+     This runs the npm package-import bridge: links external-package imports to provider
+     exports across repos, creating CROSS_IMPORTS/CROSS_CALLS edges. Required for
+     trace_path(mode=cross_repo) to cross repo boundaries.
+   Recommend cross-repo-intelligence if multiple repos are indexed.
+4. If a project is not indexed yet, run index_repository FIRST.
