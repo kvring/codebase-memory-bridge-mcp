@@ -29,6 +29,11 @@ When indexing a project, ask the user which mode:
 
 - **Standard** — `index_repository(repo_path=...)` — structure + calls + imports only.
 - **Cross-repo intelligence** — `index_repository(repo_path=..., mode="cross-repo-intelligence", target_projects=["*"])` — also runs the npm package-import bridge: links external-package imports (`import {X} from '@scope/pkg'`) to the provider repo's exported symbols, creating `CROSS_IMPORTS` / `CROSS_CALLS` edges. Required for `trace_path(mode="cross_repo")`.
+  **IMPORTANT: run the bridge on the CONSUMER (App) repo, not the PROVIDER (component library).**
+  The consumer is the repo that `import`s the package; the provider is the repo whose `package.json` declares the package `name`.
+  - ✅ `index_repository(repo_path="/path/to/App", mode="cross-repo-intelligence")` — App imports the lib
+  - ❌ `index_repository(repo_path="/path/to/lib", mode="cross-repo-intelligence")` — lib is the provider, running the bridge here deletes its reverse edges (CROSS_IMPORTED_BY / CROSS_CALLED_BY) without rebuilding them
+  - If both repos need cross-repo edges, run the bridge on the consumer repo only. The reverse edges are automatically written to the provider's DB.
 
 **Recommend cross-repo-intelligence when multiple repos are indexed** (e.g. an App + a component library). Re-run after re-indexing either repo.
 
