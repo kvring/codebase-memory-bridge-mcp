@@ -805,11 +805,13 @@ static char *bridge_read_file(const char *repo_root, const char *rel_path, int *
 
 /* Emit CROSS_CALLS (src DB: caller → phantom) + CROSS_CALLED_BY (tgt DB:
  * provider symbol → file __file__ node) for calls in `rel_path` whose callee
- * references a bridged import (obj.method or bare call). Returns edge count. */
+ * references a bridged import (obj.method or bare call). Returns edge count.
+ * Uses a hash table for O(1) callee→bridged lookup instead of O(n) linear scan. */
 static int emit_cross_calls_for_importer(
     cbm_store_t *src_store, const char *src_project, struct sqlite3 *src_db,
     const char *src_root, const char *rel_path, int64_t importer_id,
     const bridged_symbol_t *bridged, int bridged_count,
+    CBMHashTable *bridged_ht,
     cbm_store_t *tgt_store, const char *tgt_project) {
 
     /* Find the consumer's repo root from the projects table. */
@@ -854,24 +856,24 @@ static int emit_cross_calls_for_importer(
             continue;
         }
 
-        /* Try to match callee against a bridged import.
-         * Pattern 1: "LocalName.member" (obj.method call) → split at first '.'
-         * Pattern 2: bare "LocalName" (function call) → sym is the target. */
+        /* Try to match callee against a bridged import using hash lookup.
+         * Pattern 1: "LocalName.member" (obj.method call) → extract prefix, hash lookup
+         * Pattern 2: bare "LocalName" (function call) → hash lookup */
         const bridged_symbol_t *match = NULL;
         char member[CR_QN_BUF] = {0};
-        for (int b = 0; b < bridged_count; b++) {
-            const char *ln = bridged[b].local_name;
-            size_t lnlen = strlen(ln);
-            if (strncmp(callee, ln, lnlen) == 0) {
-                if (callee[lnlen] == '.') {
+        /* Extract the object prefix (everything before first '.'). */
+        const char *dot = strchr(callee, '.');
+        size_t prefix_len = dot ? (size_t)(dot - callee) : strlen(callee);
+        if (prefix_len > 0 && prefix_len < sizeof(member)) {
+            char prefix[CR_QN_BUF];
+            snprintf(prefix, sizeof(prefix), "%.*s", (int)prefix_len, callee);
+            match = (const bridged_symbol_t *)cbm_ht_get(bridged_ht, prefix);
+            if (match) {
+                if (dot) {
                     /* obj.member — capture the member name. */
-                    snprintf(member, sizeof(member), "%s", callee + lnlen + SKIP_ONE);
-                    match = &bridged[b];
-                    break;
-                } else if (callee[lnlen] == '\0') {
+                    snprintf(member, sizeof(member), "%s", dot + SKIP_ONE);
+                } else {
                     /* bare call to the imported symbol itself. */
-                    match = &bridged[b];
-                    break;
                 }
             }
         }
@@ -1018,12 +1020,21 @@ cbm_cross_repo_result_t cbm_cross_repo_package_bridge(const char *project,
         }
 
         if (scan) {
-            /* Collect bridged symbols + unique importers for CROSS_CALLS. */
-            bridged_symbol_t bridged[CR_MAX_EDGES];
+            /* Collect bridged symbols + unique importers for CROSS_CALLS.
+             * Use heap allocation — stack arrays of 4096 entries (4MB+) risk
+             * stack overflow in deep call chains. */
+            bridged_symbol_t *bridged = (bridged_symbol_t *)calloc(CR_MAX_EDGES, sizeof(bridged_symbol_t));
             int bridged_count = 0;
-            int64_t importers[CR_MAX_EDGES];
-            char importer_files[CR_MAX_EDGES][CBM_SZ_512];
+            int64_t *importers = (int64_t *)calloc(CR_MAX_EDGES, sizeof(int64_t));
+            char (*importer_files)[CBM_SZ_512] = (char (*)[CBM_SZ_512])calloc(CR_MAX_EDGES, CBM_SZ_512);
             int importer_count = 0;
+
+            if (!bridged || !importers || !importer_files) {
+                free(bridged); free(importers); free(importer_files);
+                cbm_cross_pkg_export_index_free(ix);
+                cbm_store_close(tgt_store);
+                continue;
+            }
 
             sqlite3_reset(scan);
             sqlite3_bind_text(scan, SKIP_ONE, project, -1, SQLITE_STATIC);
@@ -1114,6 +1125,17 @@ cbm_cross_repo_result_t cbm_cross_repo_package_bridge(const char *project,
                 }
             }
 
+            /* Build hash table for O(1) callee→bridged lookup. */
+            CBMHashTable *bridged_ht = cbm_ht_create(64);
+            if (bridged_ht) {
+                for (int b = 0; b < bridged_count; b++) {
+                    if (!cbm_ht_has(bridged_ht, bridged[b].local_name)) {
+                        cbm_ht_set(bridged_ht, bridged[b].local_name,
+                                   (void *)&bridged[b]);
+                    }
+                }
+            }
+
             /* CROSS_CALLS (Task 4.1): re-extract calls in each bridged importer
              * file and match callee names against the bridged local names. */
             for (int k = 0; k < importer_count; k++) {
@@ -1122,8 +1144,13 @@ cbm_cross_repo_result_t cbm_cross_repo_package_bridge(const char *project,
                 }
                 result.cross_call_edges += emit_cross_calls_for_importer(
                     src_store, project, src_db, NULL, importer_files[k], importers[k],
-                    bridged, bridged_count, tgt_store, tgt);
+                    bridged, bridged_count, bridged_ht, tgt_store, tgt);
             }
+
+            if (bridged_ht) {
+                cbm_ht_free(bridged_ht);
+            }
+            free(bridged); free(importers); free(importer_files);
         }
 
         cbm_cross_pkg_export_index_free(ix);

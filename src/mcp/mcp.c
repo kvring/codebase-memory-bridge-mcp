@@ -3221,6 +3221,7 @@ static char *handle_cross_repo_mode(const char *repo_path, const char *args) {
      * imports to provider exports, bidirectionally. Reuses the same targets. */
     cbm_cross_repo_result_t pkg = cbm_cross_repo_package_bridge(project, targets, tp_count);
     result.cross_import_edges = pkg.cross_import_edges;
+    result.cross_call_edges = pkg.cross_call_edges;
     result.projects_scanned += pkg.projects_scanned;
 
     free(targets);
