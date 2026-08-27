@@ -1,0 +1,25 @@
+src/mcp/mcp.c
+  s_30d4e85c25767e::t_48f59574dba023 3224
+src/pipeline/pass_cross_repo.c
+  s_30d4e85c25767e::t_a6d24e7a2433b2 1023-1025,1032-1037
+  s_30d4e85c25767e::t_09a9a3697d99b7 808-809,814
+  s_30d4e85c25767e::t_be21310ad13d78 1128-1138,1147-1151
+  s_30d4e85c25767e::t_b2b82add3dbb91 1153
+  s_30d4e85c25767e::t_ac1c80a9626f3c 859-861,864-872,874-875
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.43-trip",
+  "base_commit_sha": "0bbf983308cf30cd5b7b6bdf1b935948388a0c45",
+  "prompts": {},
+  "sessions": {
+    "s_30d4e85c25767e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cba3e238-da9c-475e-80fa-9bec4a1a13c9",
+        "model": "ep-bpcl3tow"
+      },
+      "human_author": "xiaojunc <xiaojunc@trip.com>"
+    }
+  }
+}
